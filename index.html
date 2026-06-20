@@ -499,7 +499,7 @@
     var peopleDefs = [
       {id:'robert', eid:SENS.p_robert, name:'Robert', glyph:'R', home:robHome, zone:robHome?'Home':'Away', status:robHome?'Home':'Away', phone:robPhone, watch:robWatch, steps:'—', dist:'0 m', sub:'iPhone 16 · Authorized always', mx:0, my:0},
       {id:'fiona', eid:SENS.p_fiona, name:'Fiona', glyph:'F', home:fioHome, zone:fioHome?'Home':'Away', status:fioHome?'Home':'Away', phone:fioPhone, watch:'—', steps:fioSteps, dist:fioDist, sub:"iPhone 16 Pro · Stationary", mx:34, my:-26},
-      {id:'byd', eid:SENS.car_loc, name:'BYD M6', glyph:'directions_car', car:true, home:bydHome, zone:bydHome?'Home':'Away', status:bydHome?'Parked · Home':'Driving', phone:val(SENS.batt,'57')+'%', watch:'—', steps:'—', dist:'0 m', sub:'L3 · Charger · '+(numv(SENS.odo,26589)).toLocaleString()+' km', mx:-22, my:30}
+      {id:'byd', eid:SENS.car_loc, name:'BYD M6', glyph:'directions_car', car:true, home:bydHome, zone:bydHome?'Home':'Away', status:bydHome?'Parked · Home':'Driving', phone:val(SENS.batt,'57')+'%', watch:'—', steps:'—', dist:'0 m', sub:val(SENS.park_floor,'L3')+' · '+val(SENS.park_remarks,'Charger')+' · '+(numv(SENS.odo,26589)).toLocaleString()+' km', mx:-22, my:30}
     ];
     var home = homeCenter();
     var presence = peopleDefs.map(function(p){
@@ -823,7 +823,7 @@
         '<div style="display:flex;flex-direction:column;gap:8px;padding-bottom:2px;">'+
           (V.car.charging?'<div style="display:flex;align-items:center;gap:6px;"><span class="ms" style="font-size:16px;color:#00b3ff;font-variation-settings:\'FILL\' 1;animation:pulse 1.6s ease-in-out infinite;">bolt</span><span style="font:600 13px/1 \'Space Grotesk\';color:#bfe2ff;">Charging · '+V.car.chargeTime+'</span></div>':'<div style="display:flex;align-items:center;gap:6px;"><span class="ms" style="font-size:16px;color:#9aa6b6;font-variation-settings:\'FILL\' 1;">battery_full</span><span style="font:600 13px/1 \'Space Grotesk\';color:#bfe2ff;">Not charging</span></div>')+
           '<div style="display:flex;align-items:center;gap:6px;"><span class="ms" style="font-size:16px;color:#9aa6b6;font-variation-settings:\'FILL\' 1;">route</span><span style="font:500 13px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">'+V.car.range+' km range</span></div>'+
-          '<div style="display:flex;align-items:center;gap:6px;"><span class="ms" style="font-size:16px;color:'+(V.car.locked?'#00d18b':'#ffae5c')+';font-variation-settings:\'FILL\' 1;">'+(V.car.locked?'lock':'lock_open')+'</span><span style="font:500 13px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">'+(V.car.locked?'Locked':'Unlocked')+' · L3 Charger</span></div>'+
+          '<div style="display:flex;align-items:center;gap:6px;"><span class="ms" style="font-size:16px;color:'+(V.car.locked?'#00d18b':'#ffae5c')+';font-variation-settings:\'FILL\' 1;">'+(V.car.locked?'lock':'lock_open')+'</span><span style="font:500 13px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">'+(V.car.locked?'Locked':'Unlocked')+' · '+esc(V.park_floor)+' '+esc(V.park_remarks)+'</span></div>'+
         '</div>'+
       '</div></div>';
     var outer = opts.portrait
