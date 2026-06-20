@@ -176,6 +176,7 @@
     calNav: 0,
     fanSpeed: {},
     fanOsc: {},
+    acTemp: {},
     carPing: {},
     photos: loadPhotos(),
     layout: layoutOverride || (window.matchMedia('(orientation: portrait)').matches ? 'portrait' : 'landscape'),
@@ -252,6 +253,9 @@
     FAN_KEYS.forEach(function(k){ var d=DEVICES[k]; if(!d||d.domain!=='fan') return; var e=state.ent[d.id]; if(!e||!e.attributes) return;
       if(typeof e.attributes.percentage==='number') state.fanSpeed[k]=Math.max(1,Math.min(10,Math.round(e.attributes.percentage/10)));
       if(typeof e.attributes.oscillating==='boolean') state.fanOsc[k]=e.attributes.oscillating; });
+    // reflect AC target temperature from HA
+    AC_KEYS.forEach(function(k){ var e=state.ent[DEVICES[k].id]; if(!e||!e.attributes) return;
+      if(typeof e.attributes.temperature==='number') state.acTemp[k]=e.attributes.temperature; });
   }
 
   /* ---------- entity value accessors (HA when connected, else mock) ---------- */
@@ -372,6 +376,21 @@
     state.fanSpeed[key] = val;                                 // optimistic
     var d = DEVICES[key];
     if(state.connected && d && d.domain==='fan') HA.callService('fan','set_percentage',{ entity_id:d.id },{ percentage:val*10 });
+  }
+  function acTarget(key){                                      // current setpoint (optimistic override, else HA attr, else 24)
+    if(state.acTemp[key]!=null) return state.acTemp[key];
+    var ta=parseFloat(attr(DEVICES[key].id,'temperature',NaN));
+    return isNaN(ta)?24:ta;
+  }
+  function setAcTemp(key, dir){
+    var id=DEVICES[key].id;
+    var step=parseFloat(attr(id,'target_temp_step',1))||1;
+    var tmin=parseFloat(attr(id,'min_temp',16)); if(isNaN(tmin)) tmin=16;
+    var tmax=parseFloat(attr(id,'max_temp',30)); if(isNaN(tmax)) tmax=30;
+    var next=Math.min(tmax, Math.max(tmin, Math.round((acTarget(key)+dir*step)*10)/10));
+    state.acTemp[key]=next;                                    // optimistic
+    if(state.connected) HA.callService('climate','set_temperature',{ entity_id:id },{ temperature:next });
+    render();
   }
 
   // mutually-exclusive toilet lights (matches the HA automation)
@@ -608,7 +627,10 @@
       var o=on[z.key];
       var ct = attr(DEVICES[z.key].id,'current_temperature', null);
       var temp = z.key==='ac_living' && !o ? '—' : (ct!=null ? (Math.round(ct*10)/10).toFixed(1)+'°' : (z.tempSrc?val(z.tempSrc,z.tFallback)+'°':z.tFallback));
+      var tgt = acTarget(z.key);
+      var tgtLabel = (tgt%1===0 ? String(tgt) : tgt.toFixed(1))+'°';
       return { name:z.name, temp:temp, mode:o?'Cool · auto':'Off', act:'toggle:'+z.key,
+        target:tgtLabel, acOn:o, tempUp:'ac-temp:'+z.key+':up', tempDn:'ac-temp:'+z.key+':dn',
         style:S({ background:o?'linear-gradient(160deg,rgba(0,179,255,.12),rgba(0,179,255,.03))':'rgba(255,255,255,.02)', border:o?'1px solid rgba(0,179,255,.33)':'1px solid rgba(255,255,255,.06)', borderRadius:'16px', padding:'16px', cursor:'pointer', transition:'all .2s' }),
         iconStyle: ms(24, o?C.accent:C.faint, o, o?'pulse 3s ease-in-out infinite':'none'),
         dotStyle: S({ width:'9px', height:'9px', borderRadius:'50%', background:o?C.accent:'#2c3540', boxShadow:o?'0 0 10px rgba(0,179,255,.6)':'none' }) };
@@ -948,7 +970,12 @@
   /* ---------- DEVICES (climate + lights) ---------- */
   function devicesView(V){
     var portrait = state.layout==='portrait';
-    var zones = V.climateZones.map(function(z){ return '<div data-act="'+z.act+'" style="'+z.style+'"><div style="display:flex;align-items:center;justify-content:space-between;"><span style="'+z.iconStyle+'">ac_unit</span><span style="'+z.dotStyle+'"></span></div><div style="font:700 27px/1 \'Space Grotesk\';margin-top:13px;">'+z.temp+'</div><div style="font:600 12px/1 \'Space Grotesk\';margin-top:7px;">'+z.name+'</div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;margin-top:5px;">'+z.mode+'</div></div>'; }).join('');
+    var zones = V.climateZones.map(function(z){ return '<div data-act="'+z.act+'" style="'+z.style+'"><div style="display:flex;align-items:center;justify-content:space-between;"><span style="'+z.iconStyle+'">ac_unit</span><span style="'+z.dotStyle+'"></span></div><div style="font:700 27px/1 \'Space Grotesk\';margin-top:13px;">'+z.temp+'</div><div style="font:600 12px/1 \'Space Grotesk\';margin-top:7px;">'+z.name+'</div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;margin-top:5px;">'+z.mode+'</div>'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:11px;">'+
+        '<span data-act="'+z.tempDn+'" class="ms" style="width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#bfe2ff;cursor:pointer;font-size:18px;user-select:none;">remove</span>'+
+        '<span style="font:700 15px/1 \'Space Grotesk\';color:'+(z.acOn?'#bfe2ff':'#6b7787')+';">'+z.target+'</span>'+
+        '<span data-act="'+z.tempUp+'" class="ms" style="width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:rgba(0,179,255,.12);border:1px solid rgba(0,179,255,.3);color:#bfe2ff;cursor:pointer;font-size:18px;user-select:none;">add</span>'+
+      '</div></div>'; }).join('');
     var fans = V.fans.map(function(f){
       // both layouts get the speed slider + oscillate toggle (non-adjustable Dining fan shows its state instead)
       var controls = f.adjustable
@@ -1188,6 +1215,7 @@
       case 'dlg-close': closeDialog(); break;
       case 'upload': uploadPhoto(arg); break;
       case 'fan-osc': setFanOsc(arg, !state.fanOsc[arg]); break;
+      case 'ac-temp': { var ap=arg.split(':'); setAcTemp(ap[0], ap[1]==='up'?1:-1); break; }
       case 'car-btn': pressCarButton(arg); break;
       case 'settings': state.showSettings=true; render(); break;
       case 'settings-close': state.showSettings=false; render(); break;
