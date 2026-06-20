@@ -1004,15 +1004,48 @@
     '</div>';
   }
 
-  /* ---------- IFRAME TABS ---------- */
-  function iframeView(V, kind){
+  /* ---------- IFRAME TABS (persistent — never re-created, so drafts survive) ----------
+     The iframes live in a container appended to <body>, OUTSIDE #root. render() rewrites
+     #root.innerHTML on every state change, which would reload an iframe placed there and wipe
+     any half-filled form. Keeping them mounted once (and just toggling visibility) preserves
+     the embedded NAS pages across re-renders and tab switches. Only the dynamic header text is
+     re-rendered, into its own element that does not touch the <iframe>. */
+  var framesEl=null, frameParts={};
+  function frameHeaderInner(kind, V){
     if(kind==='screentime'){
-      return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:12px;"><div style="display:flex;align-items:center;gap:12px;flex:none;"><span class="ms" style="font-size:20px;color:#00b3ff;">hourglass_top</span><span style="font:600 14px/1 \'Space Grotesk\';">Screen Time</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;">screentime.robertnaquila.synology.me · '+V.st_pending+' pending approvals</span><span style="margin-left:auto;font:500 10px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;background:rgba(0,209,139,.1);border:1px solid rgba(0,209,139,.25);border-radius:8px;padding:5px 9px;">App '+V.st_health+' · rev '+V.st_rev+'</span></div>'+
-        '<div style="flex:1;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08);position:relative;background:#0c0f15;"><div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;"><span class="ms" style="font-size:34px;color:#2c3540;">cloud_sync</span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#566;">Connecting to NAS…</span></div><iframe src="'+NAS_URLS.screentime+'" style="position:relative;width:100%;height:100%;border:0;background:transparent;" referrerpolicy="no-referrer"></iframe></div></div>';
+      return '<span class="ms" style="font-size:20px;color:#00b3ff;">hourglass_top</span><span style="font:600 14px/1 \'Space Grotesk\';">Screen Time</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;">screentime.robertnaquila.synology.me · '+V.st_pending+' pending approvals</span><span style="margin-left:auto;font:500 10px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;background:rgba(0,209,139,.1);border:1px solid rgba(0,209,139,.25);border-radius:8px;padding:5px 9px;">App '+V.st_health+' · rev '+V.st_rev+'</span>';
     }
-    return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:12px;"><div style="display:flex;align-items:center;gap:12px;flex:none;"><span class="ms" style="font-size:20px;color:#00b3ff;">local_parking</span><span style="font:600 14px/1 \'Space Grotesk\';">Update Carpark</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;">parking.robertnaquila.synology.me</span><div style="margin-left:auto;display:flex;gap:8px;"><span style="font:600 11px/1 \'Space Grotesk\';color:#bfe2ff;background:rgba(0,179,255,.1);border:1px solid rgba(0,179,255,.28);border-radius:8px;padding:6px 10px;">BYD · '+V.park_floor+' · '+V.park_remarks+'</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;background:rgba(0,209,139,.1);border:1px solid rgba(0,209,139,.25);border-radius:8px;padding:6px 9px;">Server '+V.park_server+' · '+V.park_time+'</span></div></div>'+
-      '<div style="flex:1;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08);position:relative;background:#0c0f15;"><div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;"><span class="ms" style="font-size:34px;color:#2c3540;">cloud_sync</span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#566;">Connecting to NAS…</span></div><iframe src="'+NAS_URLS.carpark+'" style="position:relative;width:100%;height:100%;border:0;background:transparent;" referrerpolicy="no-referrer"></iframe></div></div>';
+    return '<span class="ms" style="font-size:20px;color:#00b3ff;">local_parking</span><span style="font:600 14px/1 \'Space Grotesk\';">Update Carpark</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;">parking.robertnaquila.synology.me</span><div style="margin-left:auto;display:flex;gap:8px;"><span style="font:600 11px/1 \'Space Grotesk\';color:#bfe2ff;background:rgba(0,179,255,.1);border:1px solid rgba(0,179,255,.28);border-radius:8px;padding:6px 10px;">BYD · '+V.park_floor+' · '+V.park_remarks+'</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;background:rgba(0,209,139,.1);border:1px solid rgba(0,209,139,.25);border-radius:8px;padding:6px 9px;">Server '+V.park_server+' · '+V.park_time+'</span></div>';
   }
+  function ensureFrames(){
+    if(framesEl) return;
+    framesEl=document.createElement('div');
+    framesEl.style.cssText='position:fixed;left:0;right:0;bottom:0;top:0;z-index:5;display:none;';
+    ['screentime','carpark'].forEach(function(kind){
+      var wrap=document.createElement('div');
+      wrap.style.cssText='position:absolute;inset:0;display:none;flex-direction:column;padding:16px 20px;gap:12px;box-sizing:border-box;';
+      var header=document.createElement('div');
+      header.style.cssText='display:flex;align-items:center;gap:12px;flex:none;';
+      var box=document.createElement('div');
+      box.style.cssText='flex:1;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08);position:relative;background:#0c0f15;';
+      box.innerHTML='<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;"><span class="ms" style="font-size:34px;color:#2c3540;">cloud_sync</span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#566;">Connecting to NAS…</span></div><iframe src="'+NAS_URLS[kind]+'" style="position:relative;width:100%;height:100%;border:0;background:transparent;" referrerpolicy="no-referrer"></iframe>';
+      wrap.appendChild(header); wrap.appendChild(box);
+      framesEl.appendChild(wrap);
+      frameParts[kind]={ wrap:wrap, header:header };
+    });
+    document.body.appendChild(framesEl);
+  }
+  function syncFrames(V){
+    var kind = (state.tab==='screentime'||state.tab==='carpark') ? state.tab : null;
+    if(!kind){ if(framesEl) framesEl.style.display='none'; return; }
+    ensureFrames();
+    var tb=document.getElementById('root').firstElementChild;          // top bar — keep frames below it
+    framesEl.style.top=(tb?tb.offsetHeight:0)+'px';
+    framesEl.style.display='block';
+    ['screentime','carpark'].forEach(function(k){ frameParts[k].wrap.style.display=(k===kind)?'flex':'none'; });
+    frameParts[kind].header.innerHTML=frameHeaderInner(kind, V);
+  }
+
 
   /* ---------- DIALOGS ---------- */
   function dialogOverlay(V){
@@ -1098,8 +1131,8 @@
       case 'climate': body = devicesView(V); break;
       case 'security': body = securityView(V); break;
       case 'family': body = familyView(V); break;
-      case 'screentime': body = iframeView(V,'screentime'); break;
-      case 'carpark': body = iframeView(V,'carpark'); break;
+      case 'screentime': body = ''; break;   // rendered by the persistent frame layer
+      case 'carpark': body = ''; break;       // rendered by the persistent frame layer
       default: body = (state.layout==='portrait') ? overviewPortrait(V) : overviewLandscape(V);
     }
     document.getElementById('root').innerHTML =
@@ -1108,6 +1141,7 @@
       dialogOverlay(V) +
       calCfgOverlay(V) +
       settingsOverlay();
+    syncFrames(V);
   }
 
   /* =====================================================================

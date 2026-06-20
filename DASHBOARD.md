@@ -29,7 +29,9 @@ Tabs: **Overview · Devices · Security · Family · Screen · Park**
   and a Claude AI usage panel.
 - **Family** — people & presence cards (tap → map) and kids screen-time
   breakdown cards (tap → weekly line-graph dialog).
-- **Screen / Park** — live iframes to the NAS web apps.
+- **Screen / Park** — live iframes to the NAS web apps. The iframes are
+  mounted once and kept alive across re-renders and tab switches, so forms /
+  drafts in the embedded pages are never reset by a dashboard refresh.
 
 Active devices glow blue with bright fill and animate (fans spin, AC pulses,
 charging shimmers, alerts pulse); off devices are dim outlines.
