@@ -248,6 +248,10 @@
   function syncOn(){
     if(!state.connected) return;
     for(var k in DEVICES){ var d=DEVICES[k]; var v=entOn(d.id, d.domain); if(v!==null) state.on[k]=v; }
+    // reflect real fan speed (percentage 0-100 -> 1-10) and oscillation from HA
+    FAN_KEYS.forEach(function(k){ var d=DEVICES[k]; if(!d||d.domain!=='fan') return; var e=state.ent[d.id]; if(!e||!e.attributes) return;
+      if(typeof e.attributes.percentage==='number') state.fanSpeed[k]=Math.max(1,Math.min(10,Math.round(e.attributes.percentage/10)));
+      if(typeof e.attributes.oscillating==='boolean') state.fanOsc[k]=e.attributes.oscillating; });
   }
 
   /* ---------- entity value accessors (HA when connected, else mock) ---------- */
@@ -355,6 +359,20 @@
     else HA.callService(d.domain, want?'turn_on':'turn_off', { entity_id:d.id });
   }
   function toggleDevice(key){ desiredOn(key, !state.on[key]); render(); }
+
+  // fan oscillation + speed (optimistic local state, reconciled by the state stream)
+  function setFanOsc(key, want){
+    state.fanOsc[key] = want;                                  // optimistic
+    var d = DEVICES[key];
+    if(state.connected && d && d.domain==='fan') HA.callService('fan','oscillate',{ entity_id:d.id },{ oscillating:want });
+    render();
+  }
+  function setFanSpeed(key, val){
+    val = Math.max(1, Math.min(10, val|0));
+    state.fanSpeed[key] = val;                                 // optimistic
+    var d = DEVICES[key];
+    if(state.connected && d && d.domain==='fan') HA.callService('fan','set_percentage',{ entity_id:d.id },{ percentage:val*10 });
+  }
 
   // mutually-exclusive toilet lights (matches the HA automation)
   var exPairs = { kids_toilet_light:'kids_toilet_bright_light', kids_toilet_bright_light:'kids_toilet_light', master_toilet_light:'master_toilet_bright_light', master_toilet_bright_light:'master_toilet_light' };
@@ -603,7 +621,7 @@
       var o=on[f.key];
       var sp=(state.fanSpeed[f.key])||5;
       var osc=!!state.fanOsc[f.key];
-      return { name:f.name, icon:'mode_fan', key:f.key, adjustable:f.key!=='dining_fan',
+      return { name:f.name, icon:'mode_fan', key:f.key, adjustable:(DEVICES[f.key]||{}).domain==='fan',
         act:'toggle:'+f.key,
         style:S({ background:o?'linear-gradient(160deg,rgba(0,179,255,.12),rgba(0,179,255,.03))':'rgba(255,255,255,.02)', border:o?'1px solid rgba(0,179,255,.33)':'1px solid rgba(255,255,255,.06)', borderRadius:'14px', padding:'14px', textAlign:'center', transition:'all .2s' }),
         iconStyle: ms(30, o?C.accent:C.faint, o, o?('spin '+(2.8-sp*0.18).toFixed(2)+'s linear infinite'):'none')+'display:inline-block;',
@@ -1170,7 +1188,7 @@
       case 'dlg-cam': openDialog({kind:'cam', id:arg}); break;
       case 'dlg-close': closeDialog(); break;
       case 'upload': uploadPhoto(arg); break;
-      case 'fan-osc': state.fanOsc[arg]=!state.fanOsc[arg]; render(); break;
+      case 'fan-osc': setFanOsc(arg, !state.fanOsc[arg]); break;
       case 'car-btn': pressCarButton(arg); break;
       case 'settings': state.showSettings=true; render(); break;
       case 'settings-close': state.showSettings=false; render(); break;
@@ -1184,10 +1202,14 @@
       case 'stop': ev.stopPropagation(); break;
     }
   });
-  // fan speed slider (input event)
+  // fan speed slider: live visual feedback while dragging, HA service call on release
   document.addEventListener('input', function(ev){
     var sl = ev.target.closest('[data-speed]'); if(!sl) return;
     state.fanSpeed[sl.getAttribute('data-speed')] = +sl.value; render();
+  });
+  document.addEventListener('change', function(ev){
+    var sl = ev.target.closest('[data-speed]'); if(!sl) return;
+    setFanSpeed(sl.getAttribute('data-speed'), +sl.value);
   });
 
   /* =====================================================================
