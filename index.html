@@ -843,7 +843,6 @@
     var kidsAv = V.kids.map(function(k){
       return '<div data-act="dlg-screen:'+k.id+'" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;position:relative;">'+
         '<div style="'+k.ringStyle+'">'+(k.noPhoto?'<span style="font:600 15px/1 \'Space Grotesk\';color:#9fb0c4;">'+k.glyph+'</span>':'')+'</div>'+
-        '<span style="'+k.statusStyle+'">'+esc(k.statusLabel)+'</span>'+
         '<span style="font:600 9px/1 \'JetBrains Mono\',monospace;color:#7fb4d8;background:rgba(0,179,255,.1);border:1px solid rgba(0,179,255,.28);border-radius:6px;padding:3px 7px;white-space:nowrap;">'+esc(k.points)+' pts left</span>'+
       '</div>';
     }).join('');
