@@ -910,11 +910,11 @@
     var portrait = state.layout==='portrait';
     var zones = V.climateZones.map(function(z){ return '<div data-act="'+z.act+'" style="'+z.style+'"><div style="display:flex;align-items:center;justify-content:space-between;"><span style="'+z.iconStyle+'">ac_unit</span><span style="'+z.dotStyle+'"></span></div><div style="font:700 27px/1 \'Space Grotesk\';margin-top:13px;">'+z.temp+'</div><div style="font:600 12px/1 \'Space Grotesk\';margin-top:7px;">'+z.name+'</div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;margin-top:5px;">'+z.mode+'</div></div>'; }).join('');
     var fans = V.fans.map(function(f){
-      if(portrait){
-        var controls = f.adjustable ? '<input type="range" min="1" max="10" value="'+f.speed+'" data-speed="'+f.key+'" style="width:100%;margin-top:11px;accent-color:#00b3ff;cursor:pointer;"><div data-act="fan-osc:'+f.key+'" style="'+f.oscStyle+'"><span class="ms" style="font-size:13px;">cached</span></div>' : '';
-        return '<div style="'+f.style+'"><div data-act="'+f.act+'" style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><span style="'+f.iconStyle+'">'+f.icon+'</span><div style="font:600 12px/1 \'Space Grotesk\';margin-top:8px;">'+f.name+'</div></div>'+controls+'</div>';
-      }
-      return '<div data-act="'+f.act+'" style="'+f.style+';cursor:pointer;"><span style="'+f.iconStyle+'">'+f.icon+'</span><div style="font:600 12px/1 \'Space Grotesk\';margin-top:9px;">'+f.name+'</div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:'+f.stateCol+';margin-top:5px;">'+f.state+'</div></div>';
+      // both layouts get the speed slider + oscillate toggle (non-adjustable Dining fan shows its state instead)
+      var controls = f.adjustable
+        ? '<input type="range" min="1" max="10" value="'+f.speed+'" data-speed="'+f.key+'" style="width:100%;margin-top:11px;accent-color:#00b3ff;cursor:pointer;"><div data-act="fan-osc:'+f.key+'" style="'+f.oscStyle+'"><span class="ms" style="font-size:13px;">cached</span></div>'
+        : '<div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:'+f.stateCol+';margin-top:9px;">'+f.state+'</div>';
+      return '<div style="'+f.style+'"><div data-act="'+f.act+'" style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><span style="'+f.iconStyle+'">'+f.icon+'</span><div style="font:600 12px/1 \'Space Grotesk\';margin-top:8px;">'+f.name+'</div></div>'+controls+'</div>';
     }).join('');
     var air = V.airRooms.map(function(r){ return '<div style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:13px;display:flex;align-items:center;gap:13px;"><div style="'+r.aqiStyle+'">'+r.aqi+'</div><div><div style="font:600 13px/1 \'Space Grotesk\';">'+r.room+'</div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;margin-top:5px;">AQI · '+r.label+'</div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:4px;">'+esc(r.meta)+'</div></div></div>'; }).join('');
     var lightCols = portrait ? 1 : 2;

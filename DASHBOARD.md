@@ -20,10 +20,10 @@ Tabs: **Overview · Devices · Security · Family · Screen · Park**
   fed by your HA `calendar.*` entities; the **tune** icon opens a dialog to
   show/hide individual calendars), Climate/Lights "active at a glance" tiles,
   NAS/Air/Carpark tiles, and an Away/Sleep scenes dock.
-- **Devices** — AC zones, fans & purifiers (portrait fans get a speed slider +
-  oscillate toggle; the Dining Sensibo fan has neither), indoor air quality, and
-  a Lighting column. Toilet/bright lights are mutually exclusive, matching the
-  HA automation.
+- **Devices** — AC zones, fans & purifiers (each fan gets a speed slider +
+  oscillate toggle in both layouts; the Dining Sensibo fan has neither), indoor
+  air quality, and a Lighting column. Toilet/bright lights are mutually
+  exclusive, matching the HA automation.
 - **Security** — 3 Synology camera feeds + gate/armed status, then the Synology
   NAS gauges (CPU/RAM/temp/volume), drive temps, storage, network throughput,
   and a Claude AI usage panel.
