@@ -181,6 +181,7 @@
     layout: layoutOverride || (window.matchMedia('(orientation: portrait)').matches ? 'portrait' : 'landscape'),
     connected: false,
     connError: '',
+    showCalCfg: false,                 // calendar visibility dialog
     on: Object.assign({}, MOCK_ON),   // logical key -> boolean
     ent: {}                            // entity_id -> { state, attributes }
   };
@@ -220,14 +221,14 @@
         state.connected=true; state.connError=''; this.retry=0;
         // fetch all states, then subscribe to changes
         var gid = this.send({ type:'get_states' });
-        this.pending[gid] = function(res){ (res||[]).forEach(function(e){ state.ent[e.entity_id]=e; }); syncOn(); render(); };
+        this.pending[gid] = function(res){ (res||[]).forEach(function(e){ state.ent[e.entity_id]=e; }); syncOn(); CAL.fetchKey=''; CAL.refresh(); render(); };
         this.send({ type:'subscribe_events', event_type:'state_changed' });
         render();
         return;
       }
       if(m.type==='result'){ if(this.pending[m.id]){ this.pending[m.id](m.result); delete this.pending[m.id]; } return; }
       if(m.type==='event' && m.event && m.event.event_type==='state_changed'){
-        var d = m.event.data; if(d && d.new_state){ state.ent[d.entity_id]=d.new_state; syncOn(); render(); }
+        var d = m.event.data; if(d && d.new_state){ state.ent[d.entity_id]=d.new_state; syncOn(); if(d.entity_id.indexOf('calendar.')===0){ CAL.fetchKey=''; CAL.refresh(); } render(); }
       }
     },
     callService: function(domain, service, target, data){
@@ -254,6 +255,89 @@
   function val(id, fallback){ var e=state.ent[id]; if(e && e.state!=null && e.state!=='unknown' && e.state!=='unavailable') return e.state; return fallback; }
   function numv(id, fallback){ var v=val(id, null); var n=parseFloat(v); return isNaN(n)?fallback:n; }
   function attr(id, key, fallback){ var e=state.ent[id]; if(e && e.attributes && e.attributes[key]!=null) return e.attributes[key]; return fallback; }
+
+  /* =====================================================================
+     CALENDARS  (HA calendar.* entities + per-calendar visibility)
+     ---------------------------------------------------------------------
+     Events stream from HA's REST calendar API
+     (GET /api/calendars/<entity_id>?start=&end=) for the visible period.
+     When disconnected we fall back to demo calendars so the UI is live.
+     ===================================================================== */
+  var CAL_PALETTE = ['#00b3ff','#ff9d6c','#9b7bff','#00d18b','#ffd166','#ff6b9d','#4dd0e1','#c3f53b'];
+  var DEMO_CALS = [
+    { entity_id:'calendar.family', name:'Family' },
+    { entity_id:'calendar.work',   name:'Work' },
+    { entity_id:'calendar.kids',   name:'Kids' }
+  ];
+  function demoEvents(){
+    var now = state.now;
+    function at(off,h,m){ var d=new Date(now); d.setDate(d.getDate()+off); d.setHours(h,m,0,0); return d; }
+    var dSun = (7-now.getDay())%7 || 7;                 // next Sunday
+    var dMon = (8-now.getDay())%7 || 7;                 // next Monday
+    return [
+      { cal:'calendar.family', title:'Parent duty — Fiona',      start:at(0,18,30), end:at(0,19,30), allDay:false },
+      { cal:'calendar.family', title:"Zed's 1st birthday prep",  start:at(0,20,0),  end:at(0,21,0),  allDay:false },
+      { cal:'calendar.kids',   title:'Zayne — tuition',          start:at(dSun,10,0), end:at(dSun,11,30), allDay:false },
+      { cal:'calendar.work',   title:'SCME team meeting',        start:at(dMon,9,0),  end:at(dMon,10,0),  allDay:false }
+    ];
+  }
+  function normCalEvent(it, eid, col){
+    var sd=it.start||{}, ed=it.end||{};
+    var allDay = !!sd.date && !sd.dateTime;
+    var start = new Date(sd.dateTime || sd.date);
+    var end   = new Date(ed.dateTime || ed.date || sd.dateTime || sd.date);
+    return { cal:eid, col:col, title:(it.summary||'(busy)'), start:start, end:end, allDay:allDay };
+  }
+
+  var CAL = {
+    hidden: (function(){ try{ return JSON.parse(localStorage.getItem('ha_cal_hidden')||'{}') || {}; }catch(e){ return {}; } })(),
+    events: null,        // HA-fetched events for the current range (null until first fetch)
+    fetchKey: '',        // guards against refetching the same range/visibility
+    loading: false,
+    saveHidden: function(){ try{ localStorage.setItem('ha_cal_hidden', JSON.stringify(this.hidden)); }catch(e){} },
+    all: function(){
+      if(state.connected){
+        var out=[]; for(var k in state.ent){ if(k.indexOf('calendar.')===0){
+          out.push({ entity_id:k, name:(state.ent[k].attributes&&state.ent[k].attributes.friendly_name)||k.replace('calendar.','') }); } }
+        out.sort(function(a,b){ return a.entity_id<b.entity_id?-1:(a.entity_id>b.entity_id?1:0); });
+        return out;
+      }
+      return DEMO_CALS.slice();
+    },
+    colorFor: function(eid){ var a=this.all(); for(var i=0;i<a.length;i++){ if(a[i].entity_id===eid) return CAL_PALETTE[i%CAL_PALETTE.length]; } return CAL_PALETTE[0]; },
+    visibleIds: function(){ var self=this; return this.all().filter(function(c){ return !self.hidden[c.entity_id]; }).map(function(c){ return c.entity_id; }); },
+    toggle: function(eid){ if(this.hidden[eid]) delete this.hidden[eid]; else this.hidden[eid]=true; this.saveHidden(); this.fetchKey=''; this.refresh(); render(); },
+    range: function(){
+      var b=state.now, nav=state.calNav, s, e;
+      if(state.calView==='month'){ s=new Date(b.getFullYear(), b.getMonth()+nav, 1); e=new Date(b.getFullYear(), b.getMonth()+nav+1, 1); }
+      else if(state.calView==='day'){ s=new Date(b.getFullYear(), b.getMonth(), b.getDate()+nav); e=new Date(s); e.setDate(e.getDate()+1); }
+      else { s=new Date(b.getFullYear(), b.getMonth(), b.getDate()+nav*7); e=new Date(s); e.setDate(e.getDate()+7); }
+      return [s,e];
+    },
+    current: function(){
+      var r=this.range(), s=r[0], e=r[1], self=this;
+      var src = state.connected ? (this.events||[]) : demoEvents();
+      return src.filter(function(ev){ return !self.hidden[ev.cal] && ev.end>s && ev.start<e; })
+                .sort(function(a,b){ return a.start-b.start; });
+    },
+    refresh: function(){
+      if(!state.connected || !HA.cfg) return;          // demo path is synthesised in current()
+      var r=this.range(), s=r[0], e=r[1], ids=this.visibleIds();
+      var key = s.getTime()+'|'+e.getTime()+'|'+ids.join(',');
+      if(key===this.fetchKey) return;
+      this.fetchKey=key; this.loading=true;
+      if(ids.length===0){ this.events=[]; this.loading=false; render(); return; }
+      var collected=[], remaining=ids.length, self=this;
+      ids.forEach(function(eid){
+        var url=HA.baseUrl+'/api/calendars/'+encodeURIComponent(eid)+'?start='+encodeURIComponent(s.toISOString())+'&end='+encodeURIComponent(e.toISOString());
+        fetch(url, { headers:{ Authorization:'Bearer '+HA.cfg.token } })
+          .then(function(resp){ return resp.ok ? resp.json() : []; })
+          .then(function(list){ (list||[]).forEach(function(it){ collected.push(normCalEvent(it, eid, self.colorFor(eid))); }); })
+          .catch(function(){})
+          .then(function(){ if(--remaining===0){ self.events=collected; self.loading=false; render(); } });
+      });
+    }
+  };
 
   /* =====================================================================
      ACTIONS
@@ -321,6 +405,7 @@
      VALUE COMPUTATION  (builds everything the views render)
      ===================================================================== */
   function pad(n){ return String(n).padStart(2,'0'); }
+  function sameDay(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
   var DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MONS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   function photoOrPerson(id, key){
@@ -565,18 +650,20 @@
     var calIsList=cv==='list', calIsDay=cv==='day', calIsMonth=cv==='month';
     function vbtn(label,v){ return { label:label, act:'cal-view:'+v, style:S({ flex:1, textAlign:'center', padding:'5px 0', borderRadius:'7px', cursor:'pointer', font:"600 9px/1 'JetBrains Mono',monospace", letterSpacing:'.05em', background:cv===v?'rgba(0,179,255,.18)':'transparent', color:cv===v?'#bfe2ff':'#6b7787' }) }; }
     var calViewBtns = [ vbtn('MONTH','month'), vbtn('WEEK','list'), vbtn('DAY','day') ];
-    var allWeek = [ {when:'Today · 18:30',title:'Parent duty — Fiona',col:'#00b3ff'},{when:'Today · 20:00',title:"Zed's 1st birthday prep",col:'#ff9d6c'},{when:'Sun · 10:00',title:'Zayne — tuition',col:'#9b7bff'},{when:'Mon · 09:00',title:'SCME team meeting',col:'#00d18b'} ];
-    var allDay = [ {when:'18:30',title:'Parent duty — Fiona',col:'#00b3ff'},{when:'20:00',title:"Zed's 1st birthday prep",col:'#ff9d6c'} ];
-    var calEvents = calNav===0?allWeek:[];
-    var calDayEvents = calNav===0?allDay:[];
+    var calEvAll = CAL.current();   // visible events within the current period (HA or demo)
+    function evClock(ev){ return ev.allDay ? 'All day' : (pad(ev.start.getHours())+':'+pad(ev.start.getMinutes())); }
+    var calEvents = calEvAll.map(function(ev){ return { title:ev.title, col:ev.col, when:(sameDay(ev.start,state.now)?'Today':DAYS[ev.start.getDay()])+' · '+evClock(ev) }; });
+    var calDayEvents = calEvAll.map(function(ev){ return { title:ev.title, col:ev.col, when:(ev.allDay?'all':pad(ev.start.getHours())+':'+pad(ev.start.getMinutes())) }; });
+    var calCfgList = CAL.all().map(function(c){ return { id:c.entity_id, name:c.name, col:CAL.colorFor(c.entity_id), visible:!CAL.hidden[c.entity_id] }; });
     var b=state.now, calPeriodLabel, calCells=[];
     if(calIsMonth){
       var mm=new Date(b.getFullYear(), b.getMonth()+calNav, 1);
       calPeriodLabel=MONS[mm.getMonth()].toUpperCase()+' '+mm.getFullYear();
-      var off=(mm.getDay()+6)%7, dim=new Date(mm.getFullYear(),mm.getMonth()+1,0).getDate(), cur=(calNav===0), evD={20:1,21:1,22:1};
+      var off=(mm.getDay()+6)%7, dim=new Date(mm.getFullYear(),mm.getMonth()+1,0).getDate(), cur=(calNav===0), evD={};
+      calEvAll.forEach(function(ev){ if(ev.start.getMonth()===mm.getMonth() && ev.start.getFullYear()===mm.getFullYear()) evD[ev.start.getDate()]=ev.col; });
       for(var i=0;i<off;i++) calCells.push({day:'',dot:false,style:S({minHeight:'24px'})});
-      for(var dd2=1;dd2<=dim;dd2++){ var today=cur&&dd2===b.getDate(); var ev=cur&&!!evD[dd2]&&!today;
-        calCells.push({day:String(dd2),dot:ev,style:S({minHeight:'24px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'2px',borderRadius:'6px',font:"600 10px/1 'Space Grotesk'",background:today?'rgba(0,179,255,.18)':'transparent',color:today?'#bfe2ff':(ev?'#cdd7e2':'#6b7787'),border:today?'1px solid rgba(0,179,255,.4)':'1px solid transparent'})}); }
+      for(var dd2=1;dd2<=dim;dd2++){ var today=cur&&dd2===b.getDate(); var ev=!!evD[dd2]&&!today;
+        calCells.push({day:String(dd2),dot:ev,dotCol:evD[dd2]||'#00b3ff',style:S({minHeight:'24px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'2px',borderRadius:'6px',font:"600 10px/1 'Space Grotesk'",background:today?'rgba(0,179,255,.18)':'transparent',color:today?'#bfe2ff':(ev?'#cdd7e2':'#6b7787'),border:today?'1px solid rgba(0,179,255,.4)':'1px solid transparent'})}); }
       while(calCells.length%7) calCells.push({day:'',dot:false,style:S({minHeight:'24px'})});
     } else if(calIsDay){ var dd3=new Date(b); dd3.setDate(dd3.getDate()+calNav); calPeriodLabel=DAYS[dd3.getDay()]+' '+dd3.getDate()+' '+MONS[dd3.getMonth()]; }
     else { var ws=new Date(b); ws.setDate(ws.getDate()+calNav*7); calPeriodLabel='WEEK OF '+ws.getDate()+' '+MONS[ws.getMonth()]; }
@@ -623,6 +710,7 @@
       calIsList:calIsList, calIsDay:calIsDay, calIsMonth:calIsMonth, calViewBtns:calViewBtns, calPeriodLabel:calPeriodLabel,
       calEvents:calEvents, calDayEvents:calDayEvents, calWeekEmpty:calIsList&&calEvents.length===0, calDayEmpty:calIsDay&&calDayEvents.length===0,
       calCells:calCells, calWeekdays:['M','T','W','T','F','S','S'],
+      calCfgOpen:state.showCalCfg, calCals:calCfgList, calConnected:state.connected,
       dialogOpen:dialogOpen, dlg:dlg, mapData:mapData, kidData:kidData, camData:camData,
       st_rev:val(SENS.st_rev,'385'), st_pending:val(SENS.st_pending,'0'), st_health:val(SENS.st_health,'online'),
       park_floor:val(SENS.park_floor,'L3'), park_remarks:val(SENS.park_remarks,'Charger'), park_server:val(SENS.park_server,'online'),
@@ -766,11 +854,11 @@
         (V.calDayEmpty?'<div style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#566;padding:10px 2px;">No events</div>':'')+'</div>';
     } else {
       bodyHtml = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:5px;">'+V.calWeekdays.map(function(w){ return '<span style="text-align:center;font:600 8px/1 \'JetBrains Mono\',monospace;color:#566;">'+w+'</span>'; }).join('')+'</div>'+
-        '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">'+V.calCells.map(function(c){ return '<div style="'+c.style+'">'+c.day+(c.dot?'<span style="width:4px;height:4px;border-radius:50%;background:#00b3ff;"></span>':'')+'</div>'; }).join('')+'</div>';
+        '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">'+V.calCells.map(function(c){ return '<div style="'+c.style+'">'+c.day+(c.dot?'<span style="width:4px;height:4px;border-radius:50%;background:'+(c.dotCol||'#00b3ff')+';"></span>':'')+'</div>'; }).join('')+'</div>';
     }
     var outer = portrait ? 'flex:none;' : 'flex:1;';
     return '<div style="'+outer+'background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:13px;display:flex;flex-direction:column;min-height:0;overflow:hidden;">'+
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:11px;"><div style="display:flex;align-items:center;gap:5px;"><span data-act="cal-prev" class="ms" style="font-size:17px;color:#6b7787;cursor:pointer;">chevron_left</span><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.08em;text-transform:uppercase;color:#5a6473;white-space:nowrap;">'+esc(V.calPeriodLabel)+'</span><span data-act="cal-next" class="ms" style="font-size:17px;color:#6b7787;cursor:pointer;">chevron_right</span></div><div style="display:flex;gap:2px;background:rgba(255,255,255,.04);border-radius:9px;padding:2px;width:150px;">'+viewBtns+'</div></div>'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:11px;"><div style="display:flex;align-items:center;gap:5px;"><span data-act="cal-prev" class="ms" style="font-size:17px;color:#6b7787;cursor:pointer;">chevron_left</span><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.08em;text-transform:uppercase;color:#5a6473;white-space:nowrap;">'+esc(V.calPeriodLabel)+'</span><span data-act="cal-next" class="ms" style="font-size:17px;color:#6b7787;cursor:pointer;">chevron_right</span></div><div style="display:flex;align-items:center;gap:7px;"><span data-act="cal-cfg" class="ms" title="Show / hide calendars" style="font-size:16px;color:#6b7787;cursor:pointer;">tune</span><div style="display:flex;gap:2px;background:rgba(255,255,255,.04);border-radius:9px;padding:2px;width:150px;">'+viewBtns+'</div></div></div>'+
       '<div style="flex:1;min-height:0;overflow:hidden;">'+bodyHtml+'</div>'+
     '</div>';
   }
@@ -957,6 +1045,26 @@
     '</div>';
   }
 
+  /* ---------- CALENDAR VISIBILITY DIALOG ---------- */
+  function calCfgOverlay(V){
+    if(!V.calCfgOpen) return '';
+    var rows = V.calCals.map(function(c){
+      return '<div data-act="cal-toggle:'+c.id+'" style="display:flex;align-items:center;gap:12px;padding:12px 13px;border-radius:12px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);cursor:pointer;">'+
+        '<span style="width:12px;height:12px;border-radius:3px;flex:none;background:'+c.col+';'+(c.visible?'':'opacity:.25;')+'"></span>'+
+        '<div style="flex:1;min-width:0;"><div style="font:600 13px/1 \'Space Grotesk\';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'+(c.visible?'':'color:#6b7787;')+'">'+esc(c.name)+'</div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(c.id)+'</div></div>'+
+        '<span class="ms" style="font-size:20px;color:'+(c.visible?'#00b3ff':'#3d4756')+';">'+(c.visible?'visibility':'visibility_off')+'</span>'+
+      '</div>';
+    }).join('');
+    var empty = V.calCals.length===0 ? '<div style="font:500 11px/1.6 \'JetBrains Mono\',monospace;color:#566;padding:6px 2px;">No calendar entities found'+(V.calConnected?'.':' — connect to Home Assistant to load your calendars.')+'</div>' : '';
+    var note = '<div style="font:500 10px/1.6 \'JetBrains Mono\',monospace;color:#566;margin-top:4px;">'+(V.calConnected?'Events stream from your HA calendar entities. Choices are stored locally in this browser.':'Demo calendars — connect Home Assistant to load your real calendars.')+'</div>';
+    return '<div data-act="cal-cfg-close" style="position:absolute;inset:0;background:rgba(3,5,8,.78);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:60;animation:fadein .2s ease;">'+
+      '<div data-act="stop" style="width:480px;max-width:92vw;background:#0c0f15;border:1px solid rgba(0,179,255,.22);border-radius:20px;overflow:hidden;animation:pop .25s ease;box-shadow:0 30px 80px rgba(0,0,0,.6);">'+
+        '<div style="display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid rgba(255,255,255,.06);"><span class="ms" style="font-size:22px;color:#00b3ff;">event</span><div style="flex:1;"><div style="font:700 18px/1 \'Space Grotesk\';">Calendars</div><div style="font:500 11px/1.5 \'JetBrains Mono\',monospace;color:#8b97a8;margin-top:7px;">Show or hide calendars</div></div><span data-act="cal-cfg-close" class="ms" style="font-size:24px;color:#6b7787;cursor:pointer;">close</span></div>'+
+        '<div style="padding:18px 20px;display:flex;flex-direction:column;gap:9px;max-height:60vh;overflow-y:auto;">'+rows+empty+note+'</div>'+
+      '</div>'+
+    '</div>';
+  }
+
   /* =====================================================================
      RENDER
      ===================================================================== */
@@ -975,6 +1083,7 @@
       topBar(V) +
       '<div style="flex:1;min-height:0;position:relative;">'+body+'</div>' +
       dialogOverlay(V) +
+      calCfgOverlay(V) +
       settingsOverlay();
   }
 
@@ -993,9 +1102,12 @@
       case 'toggle-light': toggleLight(arg); break;
       case 'scene': arg==='away'?sceneAway():sceneSleep(); break;
       case 'tyre': cycleTyre(); break;
-      case 'cal-view': state.calView=arg; state.calNav=0; render(); break;
-      case 'cal-prev': state.calNav--; render(); break;
-      case 'cal-next': state.calNav++; render(); break;
+      case 'cal-view': state.calView=arg; state.calNav=0; CAL.refresh(); render(); break;
+      case 'cal-prev': state.calNav--; CAL.refresh(); render(); break;
+      case 'cal-next': state.calNav++; CAL.refresh(); render(); break;
+      case 'cal-cfg': state.showCalCfg=true; render(); break;
+      case 'cal-cfg-close': state.showCalCfg=false; render(); break;
+      case 'cal-toggle': CAL.toggle(arg); break;
       case 'dlg-map': openDialog({kind:'map', id:arg}); break;
       case 'dlg-screen': openDialog({kind:'screen', id:arg}); break;
       case 'dlg-cam': openDialog({kind:'cam', id:arg}); break;
@@ -1025,7 +1137,7 @@
      BOOT
      ===================================================================== */
   // keep clock fresh
-  setInterval(function(){ state.now=new Date(); render(); }, 30000);
+  setInterval(function(){ state.now=new Date(); CAL.refresh(); render(); }, 30000);
   // re-evaluate layout on rotation (unless overridden)
   if(!layoutOverride){
     window.matchMedia('(orientation: portrait)').addEventListener('change', function(e){ state.layout = e.matches?'portrait':'landscape'; render(); });
