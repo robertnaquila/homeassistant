@@ -15,20 +15,23 @@ Tabs: **Overview · Devices · Security · Family · Screen · Park**
 
 - **Overview** — holographic BYD M6 hero with tap-to-cycle tyre pressure
   (kPa → bar → psi), battery/charge, Who's-Home avatars (tap → location map
-  dialog; camera badge to set a photo), kids screen-time line graphs, live
-  camera strip (tap → enlarge), calendar (Month/Week/Day with ‹ › navigation),
-  Climate/Lights "active at a glance" tiles, NAS/Air/Carpark tiles, and an
-  Away/Sleep scenes dock.
-- **Devices** — AC zones, fans & purifiers (portrait fans get a speed slider +
-  oscillate toggle; the Dining Sensibo fan has neither), indoor air quality, and
-  a Lighting column. Toilet/bright lights are mutually exclusive, matching the
-  HA automation.
+  dialog), kids screen-time line graphs, live
+  camera strip (tap → enlarge), calendar (Month/Week/Day with ‹ › navigation,
+  fed by your HA `calendar.*` entities; the **tune** icon opens a dialog to
+  show/hide individual calendars), Climate/Lights "active at a glance" tiles,
+  NAS/Air/Carpark tiles, and an Away/Sleep scenes dock.
+- **Devices** — AC zones, fans & purifiers (each fan gets a speed slider +
+  oscillate toggle in both layouts; the Dining Sensibo fan has neither), indoor
+  air quality, and a Lighting column. Toilet/bright lights are mutually
+  exclusive, matching the HA automation.
 - **Security** — 3 Synology camera feeds + gate/armed status, then the Synology
   NAS gauges (CPU/RAM/temp/volume), drive temps, storage, network throughput,
   and a Claude AI usage panel.
 - **Family** — people & presence cards (tap → map) and kids screen-time
   breakdown cards (tap → weekly line-graph dialog).
-- **Screen / Park** — live iframes to the NAS web apps.
+- **Screen / Park** — live iframes to the NAS web apps. The iframes are
+  mounted once and kept alive across re-renders and tab switches, so forms /
+  drafts in the embedded pages are never reset by a dashboard refresh.
 
 Active devices glow blue with bright fill and animate (fans spin, AC pulses,
 charging shimmers, alerts pulse); off devices are dim outlines.
@@ -66,6 +69,18 @@ Once connected:
 - Scenes (Away / Sleep) issue the corresponding per-entity service calls.
 - Camera tiles render the real signed `entity_picture` snapshots, refreshed
   periodically.
+- Tapping a person/car in Who's Home opens a map dialog whose marker and
+  coordinates are derived from the entity's real `latitude`/`longitude`
+  attributes, placed relative to `zone.home` (falls back to mock offsets in
+  demo mode).
+- The calendar discovers every `calendar.*` entity and pulls events for the
+  visible Month/Week/Day window from HA's REST calendar API
+  (`/api/calendars/<entity_id>?start=&end=`), each calendar drawn in its own
+  colour. The **tune** icon on the calendar card opens a dialog to toggle
+  individual calendars on/off; the hidden set is stored in `localStorage`
+  (`ha_cal_hidden`). The REST calls are same-origin when the dashboard is
+  served from HA's `config/www/`; for cross-origin connections add the
+  dashboard origin to HA's `http.cors_allowed_origins`.
 
 You can also pass config via URL (handy for kiosk provisioning):
 
