@@ -155,7 +155,15 @@
   /* =====================================================================
      STATE
      ===================================================================== */
-  function loadPhotos(){ var p={}; ['robert','fiona','byd','zayne','zed'].forEach(function(k){ try{ var v=localStorage.getItem('ha_photo_'+k); if(v) p[k]=v; }catch(e){} }); return p; }
+  // Photos sourced from HA image serve API (matches Lovelace dashboard)
+  var HA_PHOTOS = {
+    robert: '/api/image/serve/b7f40d247cda9d269f01a1e549bbc325/512x512',
+    fiona:  '/api/image/serve/6b2fc4aea83218d12772b86626821b04/512x512',
+    byd:    '/api/image/serve/9431424ad5dd654de19c79f702fbd78d/512x512',
+    zayne:  '/api/image/serve/9686457242a073bfc1432c4a99226b33/512x512',
+    zed:    '/api/image/serve/e95b5311ccab59efc7dc7c235fab6185/512x512'
+  };
+  function loadPhotos(){ return {}; }
   var qs = new URLSearchParams(location.search);
   var layoutOverride = qs.get('layout');
 
@@ -304,7 +312,7 @@
   photoInput.addEventListener('change', function(e){
     var f = e.target.files && e.target.files[0]; if(!f || !_pk) return;
     var r = new FileReader();
-    r.onload = function(){ state.photos[_pk]=r.result; try{ localStorage.setItem('ha_photo_'+_pk, r.result); }catch(err){} render(); };
+    r.onload = function(){ state.photos[_pk]=r.result; render(); };
     r.readAsDataURL(f);
   });
   function uploadPhoto(k){ _pk=k; photoInput.value=''; photoInput.click(); }
@@ -316,7 +324,10 @@
   var DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MONS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   function photoOrPerson(id, key){
-    if(state.photos[key]) return state.photos[key];
+    if(HA_PHOTOS[key]){
+      var base = HA.baseUrl || '';
+      return base + HA_PHOTOS[key];
+    }
     var pic = attr(id,'entity_picture',null);
     if(pic && HA.baseUrl) return HA.baseUrl + pic;
     return '';
@@ -699,14 +710,12 @@
       return '<div data-act="dlg-map:'+p.id+'" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;position:relative;">'+
         '<div style="'+p.ringStyle+'">'+(p.noPhoto?'<span style="'+p.glyphStyle+'">'+p.glyph+'</span>':'')+'</div>'+
         '<span style="'+p.statusStyle+'">'+esc(p.status)+'</span>'+
-        '<div data-act="upload:'+p.id+'" style="position:absolute;top:-3px;right:2px;width:18px;height:18px;border-radius:50%;background:#11161f;border:1px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;"><span class="ms" style="font-size:11px;color:#7a8696;">photo_camera</span></div>'+
       '</div>';
     }).join('');
     var kidsAv = V.kids.map(function(k){
       return '<div data-act="dlg-screen:'+k.id+'" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;position:relative;">'+
         '<div style="'+k.ringStyle+'">'+(k.noPhoto?'<span style="font:600 15px/1 \'Space Grotesk\';color:#9fb0c4;">'+k.glyph+'</span>':'')+'</div>'+
         '<span style="'+k.statusStyle+'">'+esc(k.statusLabel)+'</span>'+
-        '<div data-act="upload:'+k.id+'" style="position:absolute;top:-3px;right:2px;width:18px;height:18px;border-radius:50%;background:#11161f;border:1px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;"><span class="ms" style="font-size:11px;color:#7a8696;">photo_camera</span></div>'+
       '</div>';
     }).join('');
     var kidCards = V.kids.map(function(k){
@@ -871,7 +880,7 @@
 
   /* ---------- FAMILY ---------- */
   function familyView(V){
-    var people = V.presence.map(function(p){ return '<div data-act="dlg-map:'+p.id+'" style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;display:flex;align-items:center;gap:14px;cursor:pointer;position:relative;"><div style="'+p.ringStyleLg+'">'+(p.noPhoto?'<span style="'+p.glyphStyleLg+'">'+p.glyph+'</span>':'')+'</div><div style="flex:1;"><div style="font:600 17px/1 \'Space Grotesk\';">'+p.name+'</div><div style="display:flex;align-items:center;gap:6px;margin-top:8px;"><span style="width:7px;height:7px;border-radius:50%;background:'+p.dotCol+';"></span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">'+esc(p.detail)+'</span></div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:6px;">'+esc(p.sub)+'</div></div><div data-act="upload:'+p.id+'" style="position:absolute;top:12px;right:12px;width:22px;height:22px;border-radius:50%;background:#11161f;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;"><span class="ms" style="font-size:13px;color:#7a8696;">photo_camera</span></div></div>'; }).join('');
+    var people = V.presence.map(function(p){ return '<div data-act="dlg-map:'+p.id+'" style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;display:flex;align-items:center;gap:14px;cursor:pointer;position:relative;"><div style="'+p.ringStyleLg+'">'+(p.noPhoto?'<span style="'+p.glyphStyleLg+'">'+p.glyph+'</span>':'')+'</div><div style="flex:1;"><div style="font:600 17px/1 \'Space Grotesk\';">'+p.name+'</div><div style="display:flex;align-items:center;gap:6px;margin-top:8px;"><span style="width:7px;height:7px;border-radius:50%;background:'+p.dotCol+';"></span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">'+esc(p.detail)+'</span></div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:6px;">'+esc(p.sub)+'</div></div></div>'; }).join('');
     var kids = V.kids.map(function(k){
       var bars = k.bars.map(function(b){ return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;justify-content:flex-end;height:100%;"><span style="font:600 11px/1 \'JetBrains Mono\',monospace;color:#cdd7e2;">'+b.min+'m</span><div style="'+b.barStyle+'"></div><span style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#6b7787;">'+b.label+'</span></div>'; }).join('');
       return '<div data-act="dlg-screen:'+k.id+'" style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;cursor:pointer;"><div style="display:flex;align-items:center;gap:13px;"><div style="'+k.ringStyleLg+'">'+(k.noPhoto?'<span style="font:600 19px/1 \'Space Grotesk\';color:#9fb0c4;">'+k.glyph+'</span>':'')+'</div><div style="flex:1;"><div style="font:600 17px/1 \'Space Grotesk\';">'+k.name+'</div><div style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#8b97a8;margin-top:7px;">'+esc(k.deviceLabel)+' · '+k.points+' pts</div></div><span style="'+k.badgeStyle+'">'+esc(k.statusLabel)+'</span></div><div style="display:flex;gap:10px;margin-top:16px;align-items:flex-end;height:90px;">'+bars+'</div></div>';
