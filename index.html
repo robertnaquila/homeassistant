@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>HA Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body { margin:0; background:#06080c; -webkit-font-smoothing:antialiased; overflow:hidden; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.1); border-radius:4px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @keyframes pulse { 0%,100% { opacity:.45; } 50% { opacity:1; } }
+  @keyframes breathe { 0%,100% { box-shadow:0 0 0 0 rgba(0,179,255,0); } 50% { box-shadow:0 0 26px 0 rgba(0,179,255,.22); } }
+  @keyframes shimmer { 0% { transform:translateX(-120%); } 100% { transform:translateX(240%); } }
+  @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:.2; } }
+  @keyframes scan { 0% { transform:translateY(-60px); } 100% { transform:translateY(220px); } }
+  @keyframes ping { 0% { transform:scale(.5); opacity:.65; } 100% { transform:scale(3); opacity:0; } }
+  @keyframes pop { from { opacity:0; transform:translateY(10px) scale(.98); } to { opacity:1; transform:none; } }
+  @keyframes fadein { from { opacity:0; } to { opacity:1; } }
+  #root { width:100vw; height:100vh; background:radial-gradient(120% 90% at 80% -10%,#0c1622 0%,#06080c 55%); color:#eef3f9; font-family:'Space Grotesk',sans-serif; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+  .ms { font-family:'Material Symbols Outlined'; line-height:1; }
+  input[type=range]{ accent-color:#00b3ff; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<input id="photoInput" type="file" accept="image/*" style="display:none">
+
+<script>
+"use strict";
+(function(){
+/* =====================================================================
+   HOME ASSISTANT HTML DASHBOARD  —  standalone, buildless
+   - Reproduces the Claude Design "HA Dashboard" (landscape) and
+     "HA Dashboard portrait" (Fire-tablet portrait) prototypes.
+   - Runs as a live demo out of the box (mock state matching the design).
+   - Connects to a real Home Assistant over the WebSocket API when a URL +
+     long-lived access token are configured (gear icon, ?hass=..&token=..,
+     or localStorage). Real entity states drive the UI; taps call services.
+   ===================================================================== */
+
+  /* ---------- palette / style helpers ---------- */
+  var C = { accent:'#00b3ff', green:'#00d18b', amber:'#ffae5c', red:'#ff5d5d', faint:'#4a5462', mute:'#6b7787', sub:'#8b97a8' };
+  var kebab = function(k){ return k.replace(/[A-Z]/g, function(m){ return '-'+m.toLowerCase(); }); };
+  function S(obj){ var out=''; for(var k in obj){ if(obj[k]==null||obj[k]==='') continue; out += kebab(k)+':'+obj[k]+';'; } return out; }
+  function ms(size, col, fill, anim){
+    return S({ fontFamily:"'Material Symbols Outlined'", fontSize:size+'px', lineHeight:1, color:col,
+      fontVariationSettings:"'FILL' "+(fill?1:0), animation:anim||'none', flex:'none' });
+  }
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  /* =====================================================================
+     ENTITY MAP  (logical key -> Home Assistant entity)
+     Derived from the user's exported entity list (hass_entities).
+     ===================================================================== */
+  var DEVICES = {
+    // lights (HA light.* group entities)
+    office_light:              { id:'light.office_light',              domain:'light' },
+    wardrobe_light:            { id:'light.wardrobe_light',            domain:'light' },
+    master_bedroom_light:      { id:'light.master_bedroom_light',      domain:'light' },
+    master_toilet_light:       { id:'light.master_toilet_light',       domain:'light' },
+    master_toilet_bright_light:{ id:'light.master_toilet_bright_light',domain:'light' },
+    step_light:                { id:'light.step_light',                domain:'light' },
+    kitchen_light:             { id:'light.kitchen_light',             domain:'light' },
+    dining_light:              { id:'light.dining_light',              domain:'light' },
+    door_light:                { id:'light.door_light',                domain:'light' },
+    service_yard_light:        { id:'light.service_yard_light',        domain:'light' },
+    kids_room_light:           { id:'light.kids_room_light',           domain:'light' },
+    hall_light:                { id:'light.hall_light',                domain:'light' },
+    kids_toilet_light:         { id:'light.kids_toilet_light',         domain:'light' },
+    kids_toilet_bright_light:  { id:'light.kids_toilet_bright_light',  domain:'light' },
+    // fans
+    master_fan:                { id:'fan.master_bedroom_fan',          domain:'fan' },
+    office_fan:                { id:'fan.office_fan',                  domain:'fan' },
+    kids_fan:                  { id:'fan.kids_room_fan',               domain:'fan' },
+    ceiling_fan:               { id:'switch.ceiling_fan',              domain:'switch' },
+    dining_fan:                { id:'climate.dining_fan',              domain:'climate' },
+    // air conditioning (sensibo climate)
+    ac_master:                 { id:'climate.master_bedroom',          domain:'climate' },
+    ac_kids:                   { id:'climate.kids_room',               domain:'climate' },
+    ac_office:                 { id:'climate.office',                  domain:'climate' },
+    ac_living:                 { id:'climate.living_room',             domain:'climate' },
+    // misc
+    salt_lamp:                 { id:'switch.salt_lamp',                domain:'switch' },
+    kids_purifier:             { id:'switch.kids_purifier',            domain:'switch' },
+    frame_tv:                  { id:'media_player.robert_s_frame_tv_3',domain:'media_player' },
+    car_climate:               { id:'switch.byd_a_c_on',               domain:'switch' }
+  };
+  // read-only sensors used across the UI
+  var SENS = {
+    sentry:'binary_sensor.byd_sentry_mode',
+    gate:'binary_sensor.gate',
+    alarm:'alarm_control_panel.blink_naquila',
+    batt:'sensor.byd_battery_level', range:'sensor.byd_range', odo:'sensor.byd_odometer',
+    ext_temp:'sensor.byd_exterior_temperature', charge_w:'sensor.byd_battery_power',
+    charging:'binary_sensor.byd_charging', charge_time:'sensor.byd_m6_charge_remaining_time',
+    car_lock:'lock.byd_lock', car_loc:'device_tracker.byd_location',
+    tyre_fl:'sensor.byd_front_left_tire_pressure', tyre_fr:'sensor.byd_front_right_tire_pressure',
+    tyre_rl:'sensor.byd_rear_left_tire_pressure', tyre_rr:'sensor.byd_rear_right_tire_pressure',
+    nas_cpu:'sensor.nas_cpu_utilization_total', nas_ram:'sensor.nas_memory_usage_real',
+    nas_temp:'sensor.nas_temperature', vol_used:'sensor.volume_1_volume_used',
+    vol_space:'sensor.volume_1_used_space', nas_dl:'sensor.nas_download_throughput',
+    nas_ul:'sensor.nas_upload_throughput', nas_boot:'sensor.ds1517_last_boot',
+    hdd1:'sensor.hdd_1_temperature', hdd2:'sensor.hdd_2_temperature', hdd3:'sensor.hdd_3_temperature',
+    hdd4:'sensor.hdd_4_temperature', hdd5:'sensor.hdd_5_temperature',
+    cl_plan:'sensor.claude_pulse_plan', cl_sess:'sensor.claude_pulse_session_usage',
+    cl_sess_reset:'sensor.claude_pulse_session_reset_countdown', cl_week:'sensor.claude_pulse_weekly_usage',
+    cl_week_reset:'sensor.claude_pulse_weekly_reset_time', cl_pace:'sensor.claude_usage_week_usage_pace',
+    aqi_out:'sensor.east_singapore_air_quality_index', temp_out:'sensor.east_singapore_temperature',
+    aqi_master:'sensor.master_bedroom_fan_air_quality_index', aqi_office:'sensor.office_fan_air_quality_index',
+    aqi_kids:'sensor.kids_room_fan_air_quality_index',
+    hum_master:'sensor.master_bedroom_fan_humidity', hum_office:'sensor.office_fan_humidity',
+    t_master:'sensor.master_bedroom_fan_temperature', t_office:'sensor.office_fan_temperature',
+    t_kids:'sensor.kids_room_temperature_feels_like',
+    weather:'weather.forecast_home',
+    rob_phone:'sensor.roberts_iphone_16_battery_level', rob_watch:'sensor.roberts_iphone_16_roberts_iphone_16_watch_battery_level',
+    fio_phone:'sensor.fionas_iphone_16_pro_fiona_s_iphone_16_pro_battery_level',
+    fio_steps:'sensor.fionas_iphone_16_pro_fiona_s_iphone_16_pro_steps',
+    fio_dist:'sensor.fionas_iphone_16_pro_fiona_s_iphone_16_pro_distance',
+    p_robert:'person.robert', p_fiona:'person.fiona',
+    st_health:'sensor.screen_time_app_health', st_rev:'sensor.screen_time_app_revision',
+    st_pending:'sensor.screen_time_pending_approvals',
+    park_floor:'sensor.byd_parking_floor_3', park_remarks:'sensor.byd_parking_remarks_3',
+    park_server:'sensor.byd_parking_server_2', park_ts:'sensor.byd_parking_timestamp_3',
+    cam_front:'camera.front_door_synology', cam_living:'camera.living_room_synology', cam_office:'camera.office'
+  };
+  // kids screen-time sensors (child_1 = Zayne, child_2 = Zed)
+  var KID_SENS = {
+    zayne:{ ipad:'sensor.screen_time_child_1_ipad_minutes', tv:'sensor.screen_time_child_1_tv_minutes', sw:'sensor.screen_time_child_1_switch_minutes', points:'sensor.screen_time_child_1_points', used:'sensor.screen_time_child_1_used', left:'sensor.screen_time_child_1_minutes_left', device:'sensor.screen_time_child_1_device', timer:'sensor.screen_time_child_1_timer_end' },
+    zed:  { ipad:'sensor.screen_time_child_2_ipad_minutes', tv:'sensor.screen_time_child_2_tv_minutes', sw:'sensor.screen_time_child_2_switch_minutes', points:'sensor.screen_time_child_2_points', used:'sensor.screen_time_child_2_used', left:'sensor.screen_time_child_2_minutes_left', device:'sensor.screen_time_child_2_device', timer:'sensor.screen_time_child_2_timer_end' }
+  };
+
+  var NAS_URLS = { screentime:'https://screentime.robertnaquila.synology.me/', carpark:'https://parking.robertnaquila.synology.me/' };
+
+  // BYD remote-control momentary buttons (HA button.press)
+  var BYD_BTN = { flash:'button.byd_flash_lights', find:'button.byd_find_car', windows:'button.byd_close_windows' };
+
+  /* =====================================================================
+     MOCK fallbacks — make demo mode look identical to the prototype.
+     ===================================================================== */
+  var MOCK_ON = {
+    office_light:true, wardrobe_light:true, master_bedroom_light:false, master_toilet_light:false, master_toilet_bright_light:false, step_light:false,
+    kitchen_light:false, dining_light:false, door_light:false, service_yard_light:false,
+    kids_room_light:false, hall_light:false, kids_toilet_light:false, kids_toilet_bright_light:false,
+    master_fan:true, office_fan:true, kids_fan:false, ceiling_fan:true, dining_fan:false,
+    ac_master:true, ac_kids:true, ac_office:true, ac_living:false,
+    salt_lamp:true, kids_purifier:true, frame_tv:false, car_climate:false
+  };
+
+  /* =====================================================================
+     STATE
+     ===================================================================== */
+  function loadPhotos(){ var p={}; ['robert','fiona','byd','zayne','zed'].forEach(function(k){ try{ var v=localStorage.getItem('ha_photo_'+k); if(v) p[k]=v; }catch(e){} }); return p; }
+  var qs = new URLSearchParams(location.search);
+  var layoutOverride = qs.get('layout');
+
+  var state = {
+    now: new Date(),
+    tab: qs.get('tab') || 'overview',
+    dialog: null,
+    tyreUnit: 'kPa',
+    calView: 'list',
+    calNav: 0,
+    fanSpeed: {},
+    fanOsc: {},
+    carPing: {},
+    photos: loadPhotos(),
+    layout: layoutOverride || (window.matchMedia('(orientation: portrait)').matches ? 'portrait' : 'landscape'),
+    connected: false,
+    connError: '',
+    on: Object.assign({}, MOCK_ON),   // logical key -> boolean
+    ent: {}                            // entity_id -> { state, attributes }
+  };
+
+  /* =====================================================================
+     HOME ASSISTANT WEBSOCKET CLIENT
+     ===================================================================== */
+  var HA = {
+    cfg: null, ws: null, id: 1, pending: {}, subscribed:false, retry:0, baseUrl:'',
+    load: function(){
+      var url = qs.get('hass') || localStorage.getItem('ha_url') || '';
+      var tok = qs.get('token') || localStorage.getItem('ha_token') || '';
+      if(url) this.cfg = { url:url.replace(/\/+$/,''), token:tok };
+      return this.cfg;
+    },
+    save: function(url, token){
+      try{ localStorage.setItem('ha_url', url); localStorage.setItem('ha_token', token); }catch(e){}
+      this.cfg = { url:url.replace(/\/+$/,''), token:token };
+    },
+    clear: function(){ try{ localStorage.removeItem('ha_url'); localStorage.removeItem('ha_token'); }catch(e){} this.cfg=null; },
+    connect: function(){
+      if(!this.cfg) return;
+      this.baseUrl = this.cfg.url;
+      var wsUrl = this.cfg.url.replace(/^http/,'ws') + '/api/websocket';
+      try { this.ws = new WebSocket(wsUrl); } catch(e){ state.connError='Bad URL'; render(); return; }
+      var self = this;
+      this.ws.onmessage = function(ev){ self.onMessage(JSON.parse(ev.data)); };
+      this.ws.onclose = function(){ state.connected=false; render(); self.retry++; if(self.cfg) setTimeout(function(){ self.connect(); }, Math.min(15000, 1000*self.retry)); };
+      this.ws.onerror = function(){ state.connError='Connection error'; };
+    },
+    send: function(msg){ msg.id = this.id++; this.ws.send(JSON.stringify(msg)); return msg.id; },
+    onMessage: function(m){
+      var self = this;
+      if(m.type==='auth_required'){ this.ws.send(JSON.stringify({ type:'auth', access_token:this.cfg.token })); return; }
+      if(m.type==='auth_invalid'){ state.connError='Invalid token'; state.connected=false; this.cfg=null; render(); return; }
+      if(m.type==='auth_ok'){
+        state.connected=true; state.connError=''; this.retry=0;
+        // fetch all states, then subscribe to changes
+        var gid = this.send({ type:'get_states' });
+        this.pending[gid] = function(res){ (res||[]).forEach(function(e){ state.ent[e.entity_id]=e; }); syncOn(); render(); };
+        this.send({ type:'subscribe_events', event_type:'state_changed' });
+        render();
+        return;
+      }
+      if(m.type==='result'){ if(this.pending[m.id]){ this.pending[m.id](m.result); delete this.pending[m.id]; } return; }
+      if(m.type==='event' && m.event && m.event.event_type==='state_changed'){
+        var d = m.event.data; if(d && d.new_state){ state.ent[d.entity_id]=d.new_state; syncOn(); render(); }
+      }
+    },
+    callService: function(domain, service, target, data){
+      if(!state.connected) return;
+      this.send({ type:'call_service', domain:domain, service:service, target:target||{}, service_data:data||{} });
+    }
+  };
+
+  // map HA entity states into the logical on/off map
+  function entOn(id, domain){
+    var e = state.ent[id]; if(!e) return null;
+    var s = e.state;
+    if(domain==='climate') return (s && s!=='off' && s!=='unavailable' && s!=='unknown');
+    if(domain==='media_player') return (s && s!=='off' && s!=='standby' && s!=='unavailable' && s!=='idle');
+    return s==='on';
+  }
+  function syncOn(){
+    if(!state.connected) return;
+    for(var k in DEVICES){ var d=DEVICES[k]; var v=entOn(d.id, d.domain); if(v!==null) state.on[k]=v; }
+  }
+
+  /* ---------- entity value accessors (HA when connected, else mock) ---------- */
+  function raw(id){ return state.ent[id]; }
+  function val(id, fallback){ var e=state.ent[id]; if(e && e.state!=null && e.state!=='unknown' && e.state!=='unavailable') return e.state; return fallback; }
+  function numv(id, fallback){ var v=val(id, null); var n=parseFloat(v); return isNaN(n)?fallback:n; }
+  function attr(id, key, fallback){ var e=state.ent[id]; if(e && e.attributes && e.attributes[key]!=null) return e.attributes[key]; return fallback; }
+
+  /* =====================================================================
+     ACTIONS
+     ===================================================================== */
+  function setTab(t){ state.tab=t; state.dialog=null; render(); }
+  function openDialog(d){ state.dialog=d; render(); }
+  function closeDialog(){ state.dialog=null; render(); }
+
+  function desiredOn(key, want){
+    var d = DEVICES[key]; if(!d) return;
+    state.on[key] = want;                                   // optimistic
+    if(!state.connected) return;
+    if(d.domain==='climate') HA.callService('climate', want?'turn_on':'turn_off', { entity_id:d.id });
+    else if(d.domain==='media_player') HA.callService('media_player', want?'turn_on':'turn_off', { entity_id:d.id });
+    else HA.callService(d.domain, want?'turn_on':'turn_off', { entity_id:d.id });
+  }
+  function toggleDevice(key){ desiredOn(key, !state.on[key]); render(); }
+
+  // mutually-exclusive toilet lights (matches the HA automation)
+  var exPairs = { kids_toilet_light:'kids_toilet_bright_light', kids_toilet_bright_light:'kids_toilet_light', master_toilet_light:'master_toilet_bright_light', master_toilet_bright_light:'master_toilet_light' };
+  function toggleLight(key){
+    var other = exPairs[key];
+    if(other){ var turnOn=!state.on[key]; desiredOn(key, turnOn); if(turnOn && state.on[other]) desiredOn(other, false); }
+    else desiredOn(key, !state.on[key]);
+    render();
+  }
+
+  var LIGHT_KEYS = ['office_light','wardrobe_light','master_bedroom_light','master_toilet_light','master_toilet_bright_light','step_light','kitchen_light','dining_light','door_light','service_yard_light','kids_room_light','hall_light','kids_toilet_light','kids_toilet_bright_light'];
+  var FAN_KEYS = ['master_fan','office_fan','kids_fan','ceiling_fan','dining_fan'];
+  var AC_KEYS = ['ac_master','ac_kids','ac_office','ac_living'];
+  function applyScene(target){
+    Object.keys(target).forEach(function(k){ if(state.on[k]!==target[k]) desiredOn(k, target[k]); });
+    render();
+  }
+  function sceneAway(){
+    var t={}; LIGHT_KEYS.forEach(function(k){t[k]=false;}); FAN_KEYS.forEach(function(k){t[k]=false;}); AC_KEYS.forEach(function(k){t[k]=false;}); t.frame_tv=false;
+    applyScene(t); // salt lamp untouched
+  }
+  function sceneSleep(){
+    var t={}; LIGHT_KEYS.forEach(function(k){t[k]=false;}); FAN_KEYS.forEach(function(k){t[k]=false;}); AC_KEYS.forEach(function(k){t[k]=false;});
+    t.ac_master=true; t.ac_kids=true; t.master_fan=true; t.frame_tv=false;
+    applyScene(t);
+  }
+  function cycleTyre(){ state.tyreUnit = ({kPa:'bar',bar:'psi',psi:'kPa'})[state.tyreUnit||'kPa']; render(); }
+  // BYD remote control — momentary buttons fire button.press; show transient "Sent" feedback
+  function pressCarButton(key){
+    state.carPing[key] = Date.now();
+    if(state.connected && BYD_BTN[key]) HA.callService('button', 'press', { entity_id:BYD_BTN[key] });
+    render();
+    setTimeout(function(){ delete state.carPing[key]; render(); }, 1500);
+  }
+
+  // photo upload
+  var photoInput = document.getElementById('photoInput');
+  var _pk = null;
+  photoInput.addEventListener('change', function(e){
+    var f = e.target.files && e.target.files[0]; if(!f || !_pk) return;
+    var r = new FileReader();
+    r.onload = function(){ state.photos[_pk]=r.result; try{ localStorage.setItem('ha_photo_'+_pk, r.result); }catch(err){} render(); };
+    r.readAsDataURL(f);
+  });
+  function uploadPhoto(k){ _pk=k; photoInput.value=''; photoInput.click(); }
+
+  /* =====================================================================
+     VALUE COMPUTATION  (builds everything the views render)
+     ===================================================================== */
+  function pad(n){ return String(n).padStart(2,'0'); }
+  var DAYS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], MONS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  function photoOrPerson(id, key){
+    if(state.photos[key]) return state.photos[key];
+    var pic = attr(id,'entity_picture',null);
+    if(pic && HA.baseUrl) return HA.baseUrl + pic;
+    return '';
+  }
+  function ringGlow(size, col, photo){
+    var b = { width:size+'px', height:size+'px', borderRadius:'50%', flex:'none', border:'2px solid '+col, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' };
+    if(photo){ b.backgroundImage='url("'+photo+'")'; b.backgroundSize='cover'; b.backgroundPosition='center'; b.backgroundColor='#0e151d'; }
+    else b.background='linear-gradient(150deg,#1b2733,#0e151d)';
+    return S(b);
+  }
+
+  function getVals(){
+    var d = state.now, on = state.on;
+    var hr = d.getHours();
+    var clock = pad(hr)+':'+pad(d.getMinutes());
+
+    // ---- weather / clock ----
+    var wState = val(SENS.weather,'rainy');
+    var wTemp = attr(SENS.weather,'temperature', 30);
+    var wIcons = { rainy:'rainy', pouring:'rainy', sunny:'sunny', clear:'sunny', 'clear-night':'bedtime', cloudy:'cloud', partlycloudy:'partly_cloudy_day', fog:'foggy', lightning:'thunderstorm', snowy:'weather_snowy', windy:'air' };
+    var wLabel = wState ? (wState.charAt(0).toUpperCase()+wState.slice(1)).replace(/-/g,' ') : 'Rainy';
+
+    // ---- nav ----
+    var TABS = [
+      {id:'overview', icon:'grid_view', label:'Overview'},
+      {id:'climate', icon:'mode_fan', label:'Devices'},
+      {id:'security', icon:'videocam', label:'Security'},
+      {id:'family', icon:'groups', label:'Family'},
+      {id:'screentime', icon:'hourglass_top', label:'Screen'},
+      {id:'carpark', icon:'local_parking', label:'Park'}
+    ];
+    var nav = TABS.map(function(t){
+      var a = t.id===state.tab;
+      return { icon:t.icon, label:t.label, act:'nav:'+t.id,
+        style:S({ display:'flex', alignItems:'center', gap:'7px', padding:'8px 12px', borderRadius:'10px', cursor:'pointer', flex:'none', background:a?'rgba(0,179,255,.14)':'transparent', transition:'all .15s' }),
+        iconStyle: ms(18, a?'#bfe2ff':C.mute, a),
+        labelStyle: S({ font:"600 13px/1 'Space Grotesk'", color:a?'#bfe2ff':C.mute }) };
+    });
+
+    // ---- presence (people + car) ----
+    var robHome = val(SENS.p_robert,'home')==='home';
+    var fioHome = val(SENS.p_fiona,'not_home')==='home';
+    var bydHome = val(SENS.car_loc,'home')==='home';
+    var robPhone = val(SENS.rob_phone,'40')+'%', robWatch = val(SENS.rob_watch,'80')+'%';
+    var fioPhone = val(SENS.fio_phone,'90')+'%';
+    var fioSteps = (function(){ var s=val(SENS.fio_steps,'3684'); var n=parseFloat(s); return isNaN(n)?s:n.toLocaleString(); })();
+    var fioDistM = numv(SENS.fio_dist, 1740);
+    var fioDist = fioDistM>=1000 ? (fioDistM/1000).toFixed(1)+' km' : Math.round(fioDistM)+' m';
+    var peopleDefs = [
+      {id:'robert', eid:SENS.p_robert, name:'Robert', glyph:'R', home:robHome, zone:robHome?'Home':'Away', status:robHome?'Home':'Away', phone:robPhone, watch:robWatch, steps:'—', dist:'0 m', sub:'iPhone 16 · Authorized always', mx:0, my:0},
+      {id:'fiona', eid:SENS.p_fiona, name:'Fiona', glyph:'F', home:fioHome, zone:fioHome?'Home':'Away', status:fioHome?'Home':'Away', phone:fioPhone, watch:'—', steps:fioSteps, dist:fioDist, sub:"iPhone 16 Pro · Stationary", mx:34, my:-26},
+      {id:'byd', eid:SENS.car_loc, name:'BYD M6', glyph:'directions_car', car:true, home:bydHome, zone:bydHome?'Home':'Away', status:bydHome?'Parked · Home':'Driving', phone:val(SENS.batt,'57')+'%', watch:'—', steps:'—', dist:'0 m', sub:'L3 · Charger · '+(numv(SENS.odo,26589)).toLocaleString()+' km', mx:-22, my:30}
+    ];
+    var presence = peopleDefs.map(function(p){
+      var col = p.home ? (p.car?C.green:C.accent) : 'rgba(255,255,255,.12)';
+      var photo = photoOrPerson(p.eid, p.id);
+      return { id:p.id, name:p.name, glyph:p.glyph, photo:photo, noPhoto:!photo,
+        ringStyle: ringGlow(46,col,photo), ringStyleLg: ringGlow(56,col,photo),
+        glyphStyle: p.car ? ms(22,p.home?C.green:C.faint,true) : S({font:"600 16px/1 'Space Grotesk'",color:p.home?'#bfe2ff':C.faint}),
+        glyphStyleLg: p.car ? ms(26,p.home?C.green:C.faint,true) : S({font:"600 19px/1 'Space Grotesk'",color:p.home?'#bfe2ff':C.faint}),
+        status:p.status, statusStyle:S({font:"500 10px/1 'JetBrains Mono',monospace",color:p.home?(p.car?'#7fe3c0':'#bfe2ff'):C.mute}),
+        detail: p.home ? (p.zone+' · phone '+p.phone) : (p.zone+' · '+p.dist+' away'),
+        sub:p.sub, dotCol: p.home?(p.car?C.green:C.accent):C.amber,
+        _map:{ col:col, status: p.home?(p.car?'Parked at Home · locked':'At Home'):('Away · '+p.dist+' from home'),
+          markerPos:'left:'+(50+p.mx)+'%;top:'+(50+p.my)+'%', markerCol:p.home?(p.car?C.green:C.accent):C.amber,
+          coords:p.home?'1.3404 N, 103.9540 E':'1.3331 N, 103.9012 E',
+          stats: p.car ? [ {label:'Status',value:'Locked',col:C.green},{label:'Battery',value:val(SENS.batt,'57')+'%',col:C.accent},{label:'Parking',value:val(SENS.park_floor,'L3'),col:'#eef3f9'} ]
+                       : [ {label:'Zone',value:p.zone,col:p.home?C.green:C.amber},{label:'Phone',value:p.phone,col:'#eef3f9'},{label:p.home?'Watch':'Steps',value:p.home?p.watch:p.steps,col:'#eef3f9'} ] } };
+    });
+
+    // ---- kids / screen time ----
+    var kidDefs = [
+      {id:'zayne', name:'Zayne', glyph:'Z', week:[{ipad:90,tv:60,sw:20},{ipad:150,tv:40,sw:45},{ipad:80,tv:90,sw:15},{ipad:200,tv:30,sw:30},{ipad:120,tv:70,sw:25},{ipad:218,tv:82,sw:30},{ipad:140,tv:50,sw:60}]},
+      {id:'zed', name:'Zed', glyph:'D', week:[{ipad:120,tv:100,sw:30},{ipad:90,tv:160,sw:50},{ipad:180,tv:120,sw:20},{ipad:70,tv:180,sw:45},{ipad:200,tv:90,sw:35},{ipad:165,tv:150,sw:45},{ipad:110,tv:130,sw:60}]}
+    ];
+    var barColor = ['#00b3ff','#b07cff','#00d18b'];
+    function mkLines(week){
+      var max = Math.max.apply(null, week.map(function(d){return Math.max(d.ipad,d.tv,d.sw);}).concat([1]));
+      function pts(key){ return week.map(function(d,i){ return (8+i*(284/6)).toFixed(1)+','+(92-d[key]/max*78).toFixed(1); }).join(' '); }
+      return { ipadLine:pts('ipad'), tvLine:pts('tv'), swLine:pts('sw') };
+    }
+    function mkBars(ipad,tv,sw){
+      var arr=[{label:'iPad',min:ipad},{label:'TV',min:tv},{label:'Switch',min:sw}];
+      var mx=Math.max(ipad,tv,sw,1);
+      return arr.map(function(b,i){ return { label:b.label, min:b.min, barStyle:S({ width:'100%', height:Math.max(8,Math.round(b.min/mx*110))+'px', borderRadius:'6px 6px 2px 2px', background:'linear-gradient(180deg,'+barColor[i]+',rgba(0,179,255,.2))' }) }; });
+    }
+    var kids = kidDefs.map(function(k){
+      var s = KID_SENS[k.id];
+      var ipad=numv(s.ipad, k.week[5].ipad), tv=numv(s.tv,k.week[5].tv), sw=numv(s.sw,k.week[5].sw);
+      var points=val(s.points, k.id==='zayne'?'11':'10.5');
+      var used=val(s.used, k.id==='zayne'?'22':'24');
+      var left=val(s.left,'0');
+      var device=val(s.device,'none');
+      var timerEnd=val(s.timer,'0');
+      var active = device!=='none' && timerEnd && timerEnd!=='0';
+      var week = k.week.slice(); week[5]={ipad:ipad,tv:tv,sw:sw};
+      var photo = state.photos[k.id]||'';
+      var dLabel = device==='none' ? 'No device active' : ('Using '+device);
+      return { id:k.id, name:k.name, glyph:k.glyph, photo:photo, noPhoto:!photo,
+        ringStyle: ringGlow(46, active?C.accent:'rgba(255,255,255,.12)', photo),
+        ringStyleLg: ringGlow(50, active?C.accent:'rgba(255,255,255,.14)', photo),
+        statusLabel: active ? (left+'m left') : (device==='none'?'No active timer':points+' pts'),
+        badgeStyle: active ? S({font:"600 10px/1 'JetBrains Mono',monospace",color:'#bfe2ff',background:'rgba(0,179,255,.12)',border:'1px solid rgba(0,179,255,.3)',borderRadius:'7px',padding:'5px 8px'})
+                           : S({font:"600 10px/1 'JetBrains Mono',monospace",color:C.amber,background:'rgba(255,168,76,.1)',border:'1px solid rgba(255,168,76,.3)',borderRadius:'7px',padding:'5px 8px'}),
+        deviceLabel:dLabel, points:points, used:used, left:left,
+        bars:mkBars(ipad,tv,sw), lines:mkLines(week),
+        statusStyle:S({font:"500 10px/1 'JetBrains Mono',monospace",color:active?'#bfe2ff':C.amber,textAlign:'center',maxWidth:'62px',whiteSpace:'normal'}),
+        devs:[ {icon:'tablet_mac',min:ipad,iconStyle:ms(12,'#00b3ff',1)},{icon:'tv',min:tv,iconStyle:ms(12,'#b07cff',1)},{icon:'sports_esports',min:sw,iconStyle:ms(12,'#00d18b',1)} ] };
+    });
+
+    // ---- cameras ----
+    var camDefs = [
+      {id:'front', eid:SENS.cam_front, name:'Front Door', sub:'Entrance · Reolink doorbell', glyph:'doorbell'},
+      {id:'living', eid:SENS.cam_living, name:'Living Room', sub:'Indoor · Synology', glyph:'weekend'},
+      {id:'office', eid:SENS.cam_office, name:'Office', sub:'Indoor · Synology', glyph:'desk'}
+    ];
+    var cameras = camDefs.map(function(c){
+      var pic = attr(c.eid,'entity_picture',null);
+      return { id:c.id, name:c.name, sub:c.sub, glyph:c.glyph, act:'dlg-cam:'+c.id,
+        img: (pic && HA.baseUrl) ? (HA.baseUrl+pic) : '' };
+    });
+
+    // ---- system tiles ----
+    var acRooms = { ac_master:'Master', ac_kids:'Kids', ac_office:'Office', ac_living:'Living' };
+    var fanRooms = { master_fan:'Master', office_fan:'Office', kids_fan:'Kids', ceiling_fan:'Ceiling', dining_fan:'Dining' };
+    var acOn = AC_KEYS.filter(function(k){return on[k];}).length;
+    var fanOnCt = FAN_KEYS.filter(function(k){return on[k];}).length;
+    var climateActive = AC_KEYS.filter(function(k){return on[k];}).map(function(k){ return { icon:'ac_unit', label:acRooms[k], act:'toggle:'+k, iconStyle:ms(18,C.accent,1,'pulse 2.4s ease-in-out infinite') }; })
+      .concat(FAN_KEYS.filter(function(k){return on[k];}).map(function(k){ return { icon:'mode_fan', label:fanRooms[k], act:'toggle:'+k, iconStyle:ms(18,C.accent,1,'spin 2.6s linear infinite')+'display:inline-block;' }; }));
+    var climateMetric = acOn+' cooling · '+fanOnCt+' fans on';
+
+    var lightLabels = { office_light:'Office', wardrobe_light:'Wardrobe', master_bedroom_light:'Bedroom', master_toilet_light:'M.Toilet', step_light:'Step', kitchen_light:'Kitchen', dining_light:'Dining', door_light:'Door', service_yard_light:'Yard', kids_room_light:'Kids', hall_light:'Hallway', kids_toilet_light:'K.Toilet' };
+    var lightsActive = Object.keys(lightLabels).filter(function(k){return on[k];}).map(function(k){ return { label:lightLabels[k], act:'toggle-light:'+k, iconStyle:ms(18,C.accent,1) }; });
+    var lightsCount = Object.keys(lightLabels).length;
+    var lightsMetric = lightsActive.length+' on · '+lightsCount+' total';
+
+    var nasCpu=val(SENS.nas_cpu,'34'), nasTemp=val(SENS.nas_temp,'57');
+    var systemTiles = [
+      {icon:'dns', metric:'Healthy', label:'NAS · '+nasCpu+'% · '+nasTemp+'°', col:C.green, fill:0, act:'nav:security'},
+      {icon:'air', metric:'AQI '+val(SENS.aqi_out,'38'), label:'Air · '+aqiWord(numv(SENS.aqi_out,38)), col:C.green, fill:0, act:'nav:climate'},
+      {icon:'local_parking', metric:val(SENS.park_floor,'L3'), label:'Carpark · '+val(SENS.park_remarks,'Charger'), col:'#9aa6b6', fill:0, act:'nav:carpark'}
+    ];
+    var scenes = [ {label:'Away',icon:'directions_walk',act:'scene:away'}, {label:'Sleep',icon:'bedtime',act:'scene:sleep'} ];
+
+    // ---- climate page ----
+    var zoneDefs = [
+      {key:'ac_master', name:'Master Bedroom', tempSrc:SENS.t_master, tFallback:'25.0'},
+      {key:'ac_kids', name:'Kids Room', tempSrc:SENS.t_kids, tFallback:'24.8'},
+      {key:'ac_office', name:'Office', tempSrc:SENS.t_office, tFallback:'25.3'},
+      {key:'ac_living', name:'Living Room', tempSrc:null, tFallback:'—'}
+    ];
+    var climateZones = zoneDefs.map(function(z){
+      var o=on[z.key];
+      var ct = attr(DEVICES[z.key].id,'current_temperature', null);
+      var temp = z.key==='ac_living' && !o ? '—' : (ct!=null ? (Math.round(ct*10)/10).toFixed(1)+'°' : (z.tempSrc?val(z.tempSrc,z.tFallback)+'°':z.tFallback));
+      return { name:z.name, temp:temp, mode:o?'Cool · auto':'Off', act:'toggle:'+z.key,
+        style:S({ background:o?'linear-gradient(160deg,rgba(0,179,255,.12),rgba(0,179,255,.03))':'rgba(255,255,255,.02)', border:o?'1px solid rgba(0,179,255,.33)':'1px solid rgba(255,255,255,.06)', borderRadius:'16px', padding:'16px', cursor:'pointer', transition:'all .2s' }),
+        iconStyle: ms(24, o?C.accent:C.faint, o, o?'pulse 3s ease-in-out infinite':'none'),
+        dotStyle: S({ width:'9px', height:'9px', borderRadius:'50%', background:o?C.accent:'#2c3540', boxShadow:o?'0 0 10px rgba(0,179,255,.6)':'none' }) };
+    });
+    var fanDefs = [
+      {key:'master_fan', name:'Master Bedroom'}, {key:'office_fan', name:'Office Dyson'},
+      {key:'kids_fan', name:'Kids Dyson'}, {key:'ceiling_fan', name:'Living Ceiling'}, {key:'dining_fan', name:'Dining'}
+    ];
+    var fans = fanDefs.map(function(f){
+      var o=on[f.key];
+      var sp=(state.fanSpeed[f.key])||5;
+      var osc=!!state.fanOsc[f.key];
+      return { name:f.name, icon:'mode_fan', key:f.key, adjustable:f.key!=='dining_fan',
+        act:'toggle:'+f.key,
+        style:S({ background:o?'linear-gradient(160deg,rgba(0,179,255,.12),rgba(0,179,255,.03))':'rgba(255,255,255,.02)', border:o?'1px solid rgba(0,179,255,.33)':'1px solid rgba(255,255,255,.06)', borderRadius:'14px', padding:'14px', textAlign:'center', transition:'all .2s' }),
+        iconStyle: ms(30, o?C.accent:C.faint, o, o?('spin '+(2.8-sp*0.18).toFixed(2)+'s linear infinite'):'none')+'display:inline-block;',
+        state:o?'Running':'Off', stateCol:o?'#bfe2ff':C.mute, speed:sp,
+        oscStyle:S({ display:'flex',alignItems:'center',justifyContent:'center',gap:'4px',marginTop:'9px',padding:'5px 0',borderRadius:'8px',cursor:'pointer',font:"600 9px/1 'JetBrains Mono',monospace",letterSpacing:'.05em', background:osc?'rgba(0,179,255,.16)':'rgba(255,255,255,.04)', color:osc?'#bfe2ff':'#6b7787', border:osc?'1px solid rgba(0,179,255,.33)':'1px solid rgba(255,255,255,.08)' }) };
+    });
+    function aqiStyle(v){ var good=v<=2; var col=good?C.green:C.amber; return S({ width:'48px',height:'48px',borderRadius:'12px',flex:'none',display:'flex',alignItems:'center',justifyContent:'center',font:"700 20px/1 'Space Grotesk'",color:col,background:good?'rgba(0,209,139,.1)':'rgba(255,168,76,.1)',border:'1px solid '+(good?'rgba(0,209,139,.3)':'rgba(255,168,76,.3)') }); }
+    var airRooms = [
+      {room:'Master Bedroom', aqi:numv(SENS.aqi_master,3), label:aqiWord(numv(SENS.aqi_master,3)), meta:val(SENS.hum_master,'60')+'% RH · '+val(SENS.t_master,'25.0')+'°'},
+      {room:'Office', aqi:numv(SENS.aqi_office,1), label:aqiWord(numv(SENS.aqi_office,1)), meta:val(SENS.hum_office,'55')+'% RH · '+val(SENS.t_office,'25.3')+'°'},
+      {room:'Kids Room', aqi:numv(SENS.aqi_kids,3), label:aqiWord(numv(SENS.aqi_kids,3)), meta:'Sensitive mode'}
+    ].map(function(r){ r.aqiStyle=aqiStyle(r.aqi); return r; });
+
+    // ---- lights page ----
+    var lDef = [
+      {area:'Office', items:[{key:'office_light', name:'Office'}]},
+      {area:'Master Bedroom', items:[{key:'wardrobe_light', name:'Wardrobe'},{key:'master_bedroom_light', name:'Bedroom'},{key:'master_toilet_light', name:'Toilet'},{key:'step_light', name:'Step Light'}]},
+      {area:'Kitchen', items:[{key:'kitchen_light', name:'Kitchen'},{key:'dining_light', name:'Dining'},{key:'door_light', name:'Door'},{key:'service_yard_light', name:'Service Yard'}]},
+      {area:'Kids Room', items:[{key:'kids_room_light', name:'Kids Room'},{key:'hall_light', name:'Hallway'},{key:'kids_toilet_light', name:'Kids Toilet'}]}
+    ];
+    var lightsOn=0, lightsTotal=0;
+    var lightAreas = lDef.map(function(g){
+      return { area:g.area, items:g.items.map(function(l){
+        var o=on[l.key]; lightsTotal++; if(o) lightsOn++;
+        return { name:l.name, act:'toggle-light:'+l.key,
+          style:S({ display:'flex',alignItems:'center',gap:'9px',padding:'6px 10px',borderRadius:'10px',cursor:'pointer',transition:'all .2s', background:o?'linear-gradient(160deg,rgba(0,179,255,.13),rgba(0,179,255,.03))':'rgba(255,255,255,.02)', border:o?'1px solid rgba(0,179,255,.33)':'1px solid rgba(255,255,255,.06)' }),
+          iconStyle: ms(22, o?C.accent:C.faint, o) };
+      }) };
+    });
+
+    // ---- NAS ----
+    function gauge(value,unit,label,pct,col){ return { value:value, unit:unit, label:label, col:col,
+      ringStyle:S({ width:'100px',height:'100px',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center', background:'conic-gradient(from -90deg,'+col+' 0% '+pct+'%,rgba(255,255,255,.07) '+pct+'% 100%)', boxShadow:'0 0 18px '+(col===C.green?'rgba(0,209,139,.2)':'rgba(0,179,255,.2)') }) }; }
+    var cpuV=numv(SENS.nas_cpu,34), ramV=numv(SENS.nas_ram,65), tmpV=numv(SENS.nas_temp,57), volV=numv(SENS.vol_used,8.1);
+    var nasGauges = [ gauge(Math.round(cpuV),'% CPU','CPU utilization',cpuV,C.accent), gauge(Math.round(ramV),'% RAM','Memory used',ramV,C.accent), gauge(Math.round(tmpV),'°C','Temperature',tmpV,C.amber), gauge(Math.round(volV),'% VOL','Volume 1 used',volV,C.green) ];
+    var hdds = [SENS.hdd1,SENS.hdd2,SENS.hdd3,SENS.hdd4,SENS.hdd5].map(function(id,i){ return { name:'HDD '+(i+1), temp:Math.round(numv(id,[43,43,45,43,43][i])) }; });
+    var volTb = (function(){ var n=numv(SENS.vol_space,1.238623494144); return (Math.round(n*100)/100).toFixed(2); })();
+    var nasDl = (function(){ var n=numv(SENS.nas_dl,213.719); return (Math.round(n*10)/10); })();
+    var nasUl = (function(){ var n=numv(SENS.nas_ul,13.805); return (Math.round(n*10)/10); })();
+    var nas = { cpu:cpuV, gauges:nasGauges, hdds:hdds, volTb:volTb, volPct:(Math.round(volV*10)/10), dl:nasDl, ul:nasUl,
+      uptime:(function(){ var b=val(SENS.nas_boot,null); if(!b) return '30d'; var diff=(Date.now()-new Date(b).getTime())/86400000; return Math.max(0,Math.round(diff))+'d'; })() };
+    var claude = { plan:val(SENS.cl_plan,'Pro').toUpperCase(), sess:Math.round(numv(SENS.cl_sess,0)), sessReset:val(SENS.cl_sess_reset,'4h 23m'),
+      week:Math.round(numv(SENS.cl_week,0)), weekReset:(function(){ var t=val(SENS.cl_week_reset,null); if(t){ var dt=new Date(t); return DAYS[dt.getDay()]+' · '+(((dt.getHours()%12)||12))+':'+pad(dt.getMinutes())+' '+(dt.getHours()<12?'AM':'PM'); } return 'Tue · 9:59 PM'; })(),
+      pace:(function(){ var p=numv(SENS.cl_pace,-42.3); return (p>0?'+':'')+Math.round(p)+'%'; })() };
+
+    // ---- tyres ----
+    var tu = state.tyreUnit;
+    function fmtT(kpa){ return tu==='bar'?(kpa/100).toFixed(2):tu==='psi'?(kpa*0.145038).toFixed(1):String(Math.round(kpa)); }
+    var tFL=numv(SENS.tyre_fl,280), tFR=numv(SENS.tyre_fr,245), tRL=numv(SENS.tyre_rl,255), tRR=numv(SENS.tyre_rr,267);
+
+    // ---- car ----
+    var chargeKw = (numv(SENS.charge_w,2934.6)/1000); chargeKw = Math.round(chargeKw*10)/10;
+    var chargeTime = (function(){ var t=val(SENS.charge_time,'11:02'); var m=String(t).match(/^(\d+):(\d+)/); return m?(m[1]+'h '+m[2]+'m'):t; })();
+    var charging = (val(SENS.charging,'on')==='on');
+    var locked = (val(SENS.car_lock,'locked')==='locked');
+    var car = { batt:Math.round(numv(SENS.batt,57)), range:Math.round(numv(SENS.range,302)), odo:numv(SENS.odo,26589).toLocaleString(),
+      ext:Math.round(numv(SENS.ext_temp,31)), chargeKw:chargeKw, chargeTime:chargeTime, charging:charging, locked:locked,
+      sentry:(val(SENS.sentry,'on')==='on') };
+
+    // ---- alerts/status ----
+    var gateOpen = (val(SENS.gate,'on')==='on');
+    var armed = (val(SENS.alarm,'armed_away')||'').indexOf('armed')===0;
+
+    // ---- calendar ----
+    var cv = state.calView, calNav = state.calNav;
+    var calIsList=cv==='list', calIsDay=cv==='day', calIsMonth=cv==='month';
+    function vbtn(label,v){ return { label:label, act:'cal-view:'+v, style:S({ flex:1, textAlign:'center', padding:'5px 0', borderRadius:'7px', cursor:'pointer', font:"600 9px/1 'JetBrains Mono',monospace", letterSpacing:'.05em', background:cv===v?'rgba(0,179,255,.18)':'transparent', color:cv===v?'#bfe2ff':'#6b7787' }) }; }
+    var calViewBtns = [ vbtn('MONTH','month'), vbtn('WEEK','list'), vbtn('DAY','day') ];
+    var allWeek = [ {when:'Today · 18:30',title:'Parent duty — Fiona',col:'#00b3ff'},{when:'Today · 20:00',title:"Zed's 1st birthday prep",col:'#ff9d6c'},{when:'Sun · 10:00',title:'Zayne — tuition',col:'#9b7bff'},{when:'Mon · 09:00',title:'SCME team meeting',col:'#00d18b'} ];
+    var allDay = [ {when:'18:30',title:'Parent duty — Fiona',col:'#00b3ff'},{when:'20:00',title:"Zed's 1st birthday prep",col:'#ff9d6c'} ];
+    var calEvents = calNav===0?allWeek:[];
+    var calDayEvents = calNav===0?allDay:[];
+    var b=state.now, calPeriodLabel, calCells=[];
+    if(calIsMonth){
+      var mm=new Date(b.getFullYear(), b.getMonth()+calNav, 1);
+      calPeriodLabel=MONS[mm.getMonth()].toUpperCase()+' '+mm.getFullYear();
+      var off=(mm.getDay()+6)%7, dim=new Date(mm.getFullYear(),mm.getMonth()+1,0).getDate(), cur=(calNav===0), evD={20:1,21:1,22:1};
+      for(var i=0;i<off;i++) calCells.push({day:'',dot:false,style:S({minHeight:'24px'})});
+      for(var dd2=1;dd2<=dim;dd2++){ var today=cur&&dd2===b.getDate(); var ev=cur&&!!evD[dd2]&&!today;
+        calCells.push({day:String(dd2),dot:ev,style:S({minHeight:'24px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'2px',borderRadius:'6px',font:"600 10px/1 'Space Grotesk'",background:today?'rgba(0,179,255,.18)':'transparent',color:today?'#bfe2ff':(ev?'#cdd7e2':'#6b7787'),border:today?'1px solid rgba(0,179,255,.4)':'1px solid transparent'})}); }
+      while(calCells.length%7) calCells.push({day:'',dot:false,style:S({minHeight:'24px'})});
+    } else if(calIsDay){ var dd3=new Date(b); dd3.setDate(dd3.getDate()+calNav); calPeriodLabel=DAYS[dd3.getDay()]+' '+dd3.getDate()+' '+MONS[dd3.getMonth()]; }
+    else { var ws=new Date(b); ws.setDate(ws.getDate()+calNav*7); calPeriodLabel='WEEK OF '+ws.getDate()+' '+MONS[ws.getMonth()]; }
+
+    // ---- dialog payloads ----
+    var dlg=state.dialog, dialogOpen=!!dlg;
+    var mapData={}, kidData={}, camData={};
+    if(dlg && dlg.kind==='map'){ var p=presence.filter(function(x){return x.id===dlg.id;})[0]||presence[0];
+      mapData={ name:p.name, noPhoto:p.noPhoto, glyph:p.glyph, ringStyle:ringGlow(48,p._map.col,p.photo), glyphStyle:p.glyphStyle, dotCol:p.dotCol, status:p._map.status, markerPos:p._map.markerPos, markerCol:p._map.markerCol, coords:p._map.coords, stats:p._map.stats };
+      mapData.isCar = !!p.id && p.id==='byd';
+      if(mapData.isCar){
+        var ctlDefs = [
+          {key:'flash', icon:'flashlight_on', label:'Flash', act:'car-btn:flash'},
+          {key:'find', icon:'my_location', label:'Find car', act:'car-btn:find'},
+          {key:'windows', icon:'sensor_window', label:'Close windows', act:'car-btn:windows'},
+          {key:'precool', icon:'ac_unit', label:'Pre-cool A/C', act:'toggle:car_climate', toggle:true}
+        ];
+        mapData.controls = ctlDefs.map(function(c){
+          var pinged = !!(state.carPing[c.key] && (Date.now()-state.carPing[c.key]<1500));
+          var active = c.toggle ? on.car_climate : pinged;
+          return { act:c.act, icon:c.icon, label:c.label,
+            sub: pinged ? 'Sent ✓' : (c.toggle ? (on.car_climate?'On':'Off') : 'Tap to send'),
+            style:S({ flex:'1', display:'flex', flexDirection:'column', alignItems:'center', gap:'7px', padding:'13px 8px', borderRadius:'13px', cursor:'pointer', transition:'all .2s',
+              background: active?'linear-gradient(160deg,rgba(0,179,255,.14),rgba(0,179,255,.04))':'rgba(255,255,255,.03)', border: active?'1px solid rgba(0,179,255,.4)':'1px solid rgba(255,255,255,.08)' }),
+            iconStyle: ms(22, active?C.accent:'#9aa6b6', active, pinged?'pulse 1s ease-in-out infinite':'none'),
+            subStyle: S({ font:"500 9px/1 'JetBrains Mono',monospace", color: pinged?'#7fe3c0':(active?'#7fb4d8':'#566') }) };
+        });
+      }
+    }
+    if(dlg && dlg.kind==='screen'){ var k=kids.filter(function(x){return x.id===dlg.id;})[0]||kids[0];
+      kidData={ name:k.name, noPhoto:k.noPhoto, glyph:k.glyph, ringStyle:ringGlow(46,C.accent,k.photo), deviceLabel:k.deviceLabel, statusLabel:k.statusLabel, points:k.points, used:k.used, left:k.left, ipadLine:k.lines.ipadLine, tvLine:k.lines.tvLine, swLine:k.lines.swLine, dayTicks:['M','T','W','T','F','S','S'] }; }
+    if(dlg && dlg.kind==='cam'){ var c=cameras.filter(function(x){return x.id===dlg.id;})[0]||cameras[0]; camData={ name:c.name, sub:c.sub, glyph:c.glyph, img:c.img }; }
+
+    return {
+      clock:clock, weatherIcon:wIcons[wState]||'rainy', weatherTemp:Math.round(parseFloat(wTemp))+'°', weatherLabel:wLabel,
+      nav:nav, presence:presence, kids:kids, cameras:cameras,
+      climateActive:climateActive, climateNoneActive:climateActive.length===0, climateMetric:climateMetric,
+      lightsActive:lightsActive, lightsNoneActive:lightsActive.length===0, lightsMetric:lightsMetric,
+      systemTiles:systemTiles, scenes:scenes,
+      climateZones:climateZones, fans:fans, airRooms:airRooms,
+      lightAreas:lightAreas, lightsOn:lightsOn, lightsTotal:lightsTotal,
+      nas:nas, claude:claude, gateOpen:gateOpen, armed:armed, car:car,
+      tyreUnit:tu, tyreFL:fmtT(tFL), tyreFR:fmtT(tFR), tyreRL:fmtT(tRL), tyreRR:fmtT(tRR), tyreLow:(tFR<250),
+      calIsList:calIsList, calIsDay:calIsDay, calIsMonth:calIsMonth, calViewBtns:calViewBtns, calPeriodLabel:calPeriodLabel,
+      calEvents:calEvents, calDayEvents:calDayEvents, calWeekEmpty:calIsList&&calEvents.length===0, calDayEmpty:calIsDay&&calDayEvents.length===0,
+      calCells:calCells, calWeekdays:['M','T','W','T','F','S','S'],
+      dialogOpen:dialogOpen, dlg:dlg, mapData:mapData, kidData:kidData, camData:camData,
+      st_rev:val(SENS.st_rev,'385'), st_pending:val(SENS.st_pending,'0'), st_health:val(SENS.st_health,'online'),
+      park_floor:val(SENS.park_floor,'L3'), park_remarks:val(SENS.park_remarks,'Charger'), park_server:val(SENS.park_server,'online'),
+      park_time:(function(){ var t=val(SENS.park_ts,null); if(t){ var dt=new Date(t); return pad(dt.getHours())+':'+pad(dt.getMinutes()); } return '20:24'; })(),
+      aqi_out:val(SENS.aqi_out,'38'), temp_out:Math.round(numv(SENS.temp_out,30))
+    };
+  }
+  function aqiWord(n){ return n<=1?'Good':n<=2?'Good':n<=3?'Fair':'Poor'; }
+
+  /* =====================================================================
+     SHARED VIEW FRAGMENTS
+     ===================================================================== */
+  function topBar(V){
+    var navItems = V.nav.map(function(n){
+      return '<div data-act="'+n.act+'" style="'+n.style+'"><span class="ms" style="'+n.iconStyle+'">'+n.icon+'</span><span style="'+n.labelStyle+'">'+n.label+'</span></div>';
+    }).join('');
+    var demoChip = state.connected ? '' :
+      '<div data-act="settings" style="display:flex;align-items:center;gap:5px;background:rgba(255,168,76,.1);border:1px solid rgba(255,168,76,.3);border-radius:8px;padding:5px 9px;cursor:pointer;"><span class="ms" style="font-size:13px;color:#ffae5c;">'+(state.connError?'error':'cloud_off')+'</span><span style="font:600 9px/1 \'JetBrains Mono\',monospace;color:#ffce9c;letter-spacing:.06em;">'+(state.connError?esc(state.connError.toUpperCase()):'DEMO')+'</span></div>';
+    var liveChip = state.connected ?
+      '<div data-act="settings" style="display:flex;align-items:center;gap:5px;background:rgba(0,209,139,.1);border:1px solid rgba(0,209,139,.3);border-radius:8px;padding:5px 9px;cursor:pointer;"><span style="width:6px;height:6px;border-radius:50%;background:#00d18b;animation:blink 1.6s ease-in-out infinite;"></span><span style="font:600 9px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;letter-spacing:.06em;">LIVE</span></div>' : '';
+    return '<div style="height:60px;flex:none;display:flex;align-items:center;gap:16px;padding:0 22px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(10,13,19,.7);backdrop-filter:blur(8px);z-index:5;">'+
+      '<div style="display:flex;align-items:center;gap:10px;flex:none;"><div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(150deg,#00b3ff,#0061b8);display:flex;align-items:center;justify-content:center;box-shadow:0 0 14px rgba(0,179,255,.45);"><span class="ms" style="font-size:19px;color:#04121e;font-variation-settings:\'FILL\' 1;">cottage</span></div></div>'+
+      '<div style="display:flex;align-items:center;gap:3px;margin-left:6px;overflow:hidden;">'+navItems+'</div>'+
+      '<div style="margin-left:auto;display:flex;align-items:center;gap:14px;flex:none;">'+demoChip+liveChip+
+        '<div style="display:flex;align-items:center;gap:7px;"><span class="ms" style="font-size:20px;color:#6fb6ff;">'+V.weatherIcon+'</span><span style="font:600 14px/1 \'Space Grotesk\';">'+V.weatherTemp+'</span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#6b7787;">'+esc(V.weatherLabel)+'</span></div>'+
+        '<span style="font:600 17px/1 \'JetBrains Mono\',monospace;letter-spacing:.04em;color:#d7e2ee;min-width:62px;text-align:right;">'+V.clock+'</span>'+
+        '<div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(150deg,#1f3142,#0f1a24);border:1.5px solid #00b3ff;display:flex;align-items:center;justify-content:center;font:600 12px/1 \'Space Grotesk\';color:#bfe2ff;flex:none;">R</div>'+
+      '</div></div>';
+  }
+
+  function carHero(V, opts){
+    opts = opts||{};
+    var frFill = V.tyreLow ? 'rgba(255,168,76,.75)' : 'rgba(0,179,255,.55)';
+    var frShadow = V.tyreLow ? '0 0 11px rgba(255,168,76,.6)' : '0 0 8px rgba(0,179,255,.5)';
+    var frAnim = V.tyreLow ? 'animation:pulse 1.8s ease-in-out infinite;' : '';
+    var holo = '<div data-act="tyre" style="position:absolute;right:6px;top:0;bottom:0;width:300px;display:flex;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;z-index:3;">'+
+      '<div style="position:absolute;width:212px;height:212px;border-radius:50%;background:radial-gradient(circle,rgba(0,179,255,.13),transparent 62%);"></div>'+
+      '<div style="position:relative;width:252px;height:188px;">'+
+        '<div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:82px;height:156px;">'+
+          '<div style="position:absolute;inset:0;border-radius:42px 42px 34px 34px;border:1.5px solid rgba(0,179,255,.55);background:linear-gradient(180deg,rgba(0,179,255,.12),rgba(0,179,255,.03));box-shadow:0 0 26px rgba(0,179,255,.22),inset 0 0 18px rgba(0,179,255,.08);overflow:hidden;">'+
+            '<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,179,255,.06) 0 1px,transparent 1px 5px);"></div>'+
+            '<div style="position:absolute;left:0;right:0;height:30px;background:linear-gradient(180deg,transparent,rgba(0,179,255,.25),transparent);animation:scan 3.6s linear infinite;"></div>'+
+            '<div style="position:absolute;top:24px;left:11px;right:11px;height:30px;border-radius:14px 14px 6px 6px;background:rgba(0,179,255,.15);border:1px solid rgba(0,179,255,.3);"></div>'+
+            '<div style="position:absolute;bottom:22px;left:13px;right:13px;height:26px;border-radius:6px 6px 12px 12px;background:rgba(0,179,255,.1);border:1px solid rgba(0,179,255,.25);"></div>'+
+            '<div style="position:absolute;top:58px;bottom:50px;left:50%;width:1px;background:rgba(0,179,255,.22);transform:translateX(-50%);"></div>'+
+          '</div>'+
+          '<div style="position:absolute;left:-5px;top:18px;width:10px;height:28px;border-radius:4px;background:rgba(0,179,255,.55);box-shadow:0 0 8px rgba(0,179,255,.5);"></div>'+
+          '<div style="position:absolute;right:-5px;top:18px;width:10px;height:28px;border-radius:4px;background:'+frFill+';box-shadow:'+frShadow+';'+frAnim+'"></div>'+
+          '<div style="position:absolute;left:-5px;bottom:18px;width:10px;height:28px;border-radius:4px;background:rgba(0,179,255,.55);box-shadow:0 0 8px rgba(0,179,255,.5);"></div>'+
+          '<div style="position:absolute;right:-5px;bottom:18px;width:10px;height:28px;border-radius:4px;background:rgba(0,179,255,.55);box-shadow:0 0 8px rgba(0,179,255,.5);"></div>'+
+        '</div>'+
+        '<div style="position:absolute;left:0;top:20px;display:flex;flex-direction:column;align-items:flex-start;"><div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#6fb6ff;letter-spacing:.08em;">FRONT L</div><div style="font:700 17px/1 \'Space Grotesk\';color:#bfe2ff;margin-top:3px;">'+V.tyreFL+'<span style="font-size:8px;color:#6b7787;"> '+V.tyreUnit+'</span></div></div>'+
+        '<div style="position:absolute;right:0;top:14px;display:flex;flex-direction:column;align-items:flex-end;'+(V.tyreLow?'animation:pulse 1.9s ease-in-out infinite;':'')+'">'+(V.tyreLow?'<div style="display:flex;align-items:center;gap:3px;"><span class="ms" style="font-size:11px;color:#ffae5c;font-variation-settings:\'FILL\' 1;">warning</span><div style="font:600 8px/1 \'JetBrains Mono\',monospace;color:#ffae5c;letter-spacing:.08em;">FRONT R · LOW</div></div>':'<div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#6fb6ff;letter-spacing:.08em;">FRONT R</div>')+'<div style="font:700 17px/1 \'Space Grotesk\';color:'+(V.tyreLow?'#ffce9c':'#bfe2ff')+';margin-top:3px;">'+V.tyreFR+'<span style="font-size:8px;color:'+(V.tyreLow?'#b78a5e':'#6b7787')+';"> '+V.tyreUnit+'</span></div></div>'+
+        '<div style="position:absolute;left:0;bottom:14px;display:flex;flex-direction:column;align-items:flex-start;"><div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#6fb6ff;letter-spacing:.08em;">REAR L</div><div style="font:700 17px/1 \'Space Grotesk\';color:#bfe2ff;margin-top:3px;">'+V.tyreRL+'<span style="font-size:8px;color:#6b7787;"> '+V.tyreUnit+'</span></div></div>'+
+        '<div style="position:absolute;right:0;bottom:14px;display:flex;flex-direction:column;align-items:flex-end;"><div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#6fb6ff;letter-spacing:.08em;">REAR R</div><div style="font:700 17px/1 \'Space Grotesk\';color:#bfe2ff;margin-top:3px;">'+V.tyreRR+'<span style="font-size:8px;color:#6b7787;"> '+V.tyreUnit+'</span></div></div>'+
+      '</div></div>';
+    var body = '<div style="position:relative;padding:16px 18px;height:100%;display:flex;flex-direction:column;pointer-events:none;">'+
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;"><div><div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.14em;text-transform:uppercase;color:#5a6473;">Vehicle · '+(V.car.locked?'Home':'Away')+'</div><div style="font:700 23px/1 \'Space Grotesk\';margin-top:7px;">BYD M6</div></div></div>'+
+      '<div style="display:flex;gap:18px;margin-top:13px;">'+
+        '<div><div style="font:600 8px/1 \'JetBrains Mono\',monospace;color:#566;letter-spacing:.08em;">ODOMETER</div><div style="font:700 14px/1 \'Space Grotesk\';margin-top:5px;">'+V.car.odo+'<span style="font-size:8px;color:#8b97a8;"> km</span></div></div>'+
+        '<div><div style="font:600 8px/1 \'JetBrains Mono\',monospace;color:#566;letter-spacing:.08em;">EXTERIOR</div><div style="font:700 14px/1 \'Space Grotesk\';margin-top:5px;">'+V.car.ext+'<span style="font-size:8px;color:#8b97a8;"> °C</span></div></div>'+
+        '<div><div style="font:600 8px/1 \'JetBrains Mono\',monospace;color:#566;letter-spacing:.08em;">CHARGE</div><div style="font:700 14px/1 \'Space Grotesk\';margin-top:5px;">'+V.car.chargeKw+'<span style="font-size:8px;color:#8b97a8;"> kW</span></div></div>'+
+        '<div><div style="font:600 8px/1 \'JetBrains Mono\',monospace;color:#566;letter-spacing:.08em;">SENTRY</div><div style="font:700 14px/1 \'Space Grotesk\';margin-top:5px;color:'+(V.car.sentry?'#00d18b':'#6b7787')+';">'+(V.car.sentry?'On':'Off')+'</div></div>'+
+      '</div>'+
+      '<div style="margin-top:auto;display:flex;align-items:flex-end;gap:22px;">'+
+        '<div><div style="font:600 10px/1 \'JetBrains Mono\',monospace;color:#566;letter-spacing:.1em;">BATTERY</div>'+
+          '<div style="display:flex;align-items:baseline;gap:3px;margin-top:5px;"><span style="font:700 40px/.9 \'Space Grotesk\';">'+V.car.batt+'</span><span style="font:600 17px/1 \'Space Grotesk\';color:#8b97a8;">%</span></div>'+
+          '<div style="width:148px;height:6px;border-radius:4px;background:rgba(255,255,255,.07);margin-top:9px;overflow:hidden;position:relative;"><div style="position:absolute;inset:0 '+(100-V.car.batt)+'% 0 0;border-radius:4px;background:linear-gradient(90deg,#0070b8,#00b3ff);"></div>'+(V.car.charging?'<div style="position:absolute;top:0;bottom:0;width:40%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);animation:shimmer 1.9s linear infinite;"></div>':'')+'</div>'+
+        '</div>'+
+        '<div style="display:flex;flex-direction:column;gap:8px;padding-bottom:2px;">'+
+          (V.car.charging?'<div style="display:flex;align-items:center;gap:6px;"><span class="ms" style="font-size:16px;color:#00b3ff;font-variation-settings:\'FILL\' 1;animation:pulse 1.6s ease-in-out infinite;">bolt</span><span style="font:600 13px/1 \'Space Grotesk\';color:#bfe2ff;">Charging · '+V.car.chargeTime+'</span></div>':'<div style="display:flex;align-items:center;gap:6px;"><span class="ms" style="font-size:16px;color:#9aa6b6;font-variation-settings:\'FILL\' 1;">battery_full</span><span style="font:600 13px/1 \'Space Grotesk\';color:#bfe2ff;">Not charging</span></div>')+
+          '<div style="display:flex;align-items:center;gap:6px;"><span class="ms" style="font-size:16px;color:#9aa6b6;font-variation-settings:\'FILL\' 1;">route</span><span style="font:500 13px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">'+V.car.range+' km range</span></div>'+
+          '<div style="display:flex;align-items:center;gap:6px;"><span class="ms" style="font-size:16px;color:'+(V.car.locked?'#00d18b':'#ffae5c')+';font-variation-settings:\'FILL\' 1;">'+(V.car.locked?'lock':'lock_open')+'</span><span style="font:500 13px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">'+(V.car.locked?'Locked':'Unlocked')+' · L3 Charger</span></div>'+
+        '</div>'+
+      '</div></div>';
+    var outer = opts.portrait
+      ? 'flex:none;min-height:236px;background:#0c0f15;border:1px solid rgba(0,179,255,.22);border-radius:16px;position:relative;overflow:hidden;animation:breathe 5s ease-in-out infinite;'
+      : 'flex:1.75;background:#0c0f15;border:1px solid rgba(0,179,255,.22);border-radius:16px;position:relative;overflow:hidden;animation:breathe 5s ease-in-out infinite;';
+    return '<div style="'+outer+'">'+holo+body+'</div>';
+  }
+
+  function whosHome(V, opts){
+    opts = opts||{};
+    var people = V.presence.map(function(p){
+      return '<div data-act="dlg-map:'+p.id+'" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;position:relative;">'+
+        '<div style="'+p.ringStyle+'">'+(p.noPhoto?'<span style="'+p.glyphStyle+'">'+p.glyph+'</span>':'')+'</div>'+
+        '<span style="'+p.statusStyle+'">'+esc(p.status)+'</span>'+
+        '<div data-act="upload:'+p.id+'" style="position:absolute;top:-3px;right:2px;width:18px;height:18px;border-radius:50%;background:#11161f;border:1px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;"><span class="ms" style="font-size:11px;color:#7a8696;">photo_camera</span></div>'+
+      '</div>';
+    }).join('');
+    var kidsAv = V.kids.map(function(k){
+      return '<div data-act="dlg-screen:'+k.id+'" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;position:relative;">'+
+        '<div style="'+k.ringStyle+'">'+(k.noPhoto?'<span style="font:600 15px/1 \'Space Grotesk\';color:#9fb0c4;">'+k.glyph+'</span>':'')+'</div>'+
+        '<span style="'+k.statusStyle+'">'+esc(k.statusLabel)+'</span>'+
+        '<div data-act="upload:'+k.id+'" style="position:absolute;top:-3px;right:2px;width:18px;height:18px;border-radius:50%;background:#11161f;border:1px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;"><span class="ms" style="font-size:11px;color:#7a8696;">photo_camera</span></div>'+
+      '</div>';
+    }).join('');
+    var kidCards = V.kids.map(function(k){
+      var devs = k.devs.map(function(dv){ return '<div style="display:flex;align-items:center;gap:3px;"><span style="'+dv.iconStyle+'">'+dv.icon+'</span><span style="font:600 9px/1 \'JetBrains Mono\',monospace;color:#cdd7e2;">'+dv.min+'m</span></div>'; }).join('');
+      var act = opts.portrait ? ' data-act="nav:screentime"' : '';
+      var cur = opts.portrait ? 'cursor:pointer;' : '';
+      return '<div'+act+' style="flex:1;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:11px;padding:9px 10px;min-width:0;'+cur+'">'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"><span style="font:600 11px/1 \'Space Grotesk\';">'+k.name+'</span><span style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#8b97a8;white-space:nowrap;">'+esc(k.statusLabel)+'</span></div>'+
+        '<svg viewBox="0 0 300 100" preserveAspectRatio="none" style="width:100%;height:44px;display:block;"><polyline points="'+k.lines.ipadLine+'" fill="none" stroke="#00b3ff" stroke-width="3"></polyline><polyline points="'+k.lines.tvLine+'" fill="none" stroke="#b07cff" stroke-width="3"></polyline><polyline points="'+k.lines.swLine+'" fill="none" stroke="#00d18b" stroke-width="3"></polyline></svg>'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:7px;">'+devs+'</div>'+
+      '</div>';
+    }).join('');
+    return '<div style="flex:1;background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:14px;min-height:0;">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;"><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Who\'s home</span><span data-act="nav:family" style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#00b3ff;cursor:pointer;">ALL →</span></div>'+
+      '<div style="display:flex;gap:12px;margin-top:13px;">'+people+kidsAv+'</div>'+
+      '<div style="display:flex;gap:10px;margin-top:12px;">'+kidCards+'</div>'+
+    '</div>';
+  }
+
+  function cameraStrip(V, big){
+    var size = big ? {icon:30, recF:8, rec:8} : {icon:30};
+    var tiles = V.cameras.map(function(c){
+      var bg = c.img ? 'background-image:url('+c.img+');background-size:cover;background-position:center;' : '';
+      return '<div data-act="'+c.act+'" style="flex:1;border-radius:11px;overflow:hidden;position:relative;background:linear-gradient(150deg,#141d27,#0a0f15);'+bg+'border:1px solid rgba(255,255,255,.06);cursor:pointer;min-width:0;">'+
+        (c.img?'':'<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px);"></div><div style="position:absolute;inset:0;background:radial-gradient(80% 60% at 50% 40%,rgba(0,179,255,.06),transparent 70%);"></div><div style="position:absolute;left:0;right:0;height:46px;background:linear-gradient(180deg,transparent,rgba(0,179,255,.16),transparent);animation:scan 4.5s linear infinite;"></div><span class="ms" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:30px;color:rgba(255,255,255,.13);">'+c.glyph+'</span>')+
+        '<div style="position:absolute;top:7px;left:8px;display:flex;align-items:center;gap:5px;"><span style="width:6px;height:6px;border-radius:50%;background:#ff5d5d;animation:blink 1.4s ease-in-out infinite;"></span><span style="font:600 8px/1 \'JetBrains Mono\',monospace;color:#ff9d9d;letter-spacing:.1em;">REC</span></div>'+
+        '<div style="position:absolute;bottom:7px;left:8px;right:8px;display:flex;align-items:center;justify-content:space-between;"><span style="font:600 11px/1 \'Space Grotesk\';color:#e8edf4;text-shadow:0 1px 3px #000;">'+c.name+'</span><span style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;letter-spacing:.08em;">LIVE</span></div>'+
+      '</div>';
+    }).join('');
+    var gate = V.gateOpen ? '<span style="display:flex;align-items:center;gap:5px;background:rgba(255,168,76,.12);border:1px solid rgba(255,168,76,.32);border-radius:8px;padding:4px 8px;animation:pulse 2.4s ease-in-out infinite;"><span class="ms" style="font-size:13px;color:#ffae5c;font-variation-settings:\'FILL\' 1;">sensor_door</span><span style="font:600 9px/1 \'JetBrains Mono\',monospace;color:#ffce9c;letter-spacing:.06em;">GATE OPEN</span></span>' : '';
+    var outer = big ? 'flex:none;height:236px;' : 'flex:2.1;';
+    return '<div style="'+outer+'background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:13px;display:flex;flex-direction:column;min-height:0;">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:11px;"><div style="display:flex;align-items:center;gap:8px;"><span style="width:7px;height:7px;border-radius:50%;background:#ff5d5d;animation:blink 1.4s ease-in-out infinite;"></span><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#cdd7e2;">Security · 3 live · '+(V.armed?'armed away':'disarmed')+'</span>'+gate+'</div><span data-act="nav:security" style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#00b3ff;cursor:pointer;">SECURITY →</span></div>'+
+      '<div style="display:flex;gap:10px;flex:1;min-height:0;">'+tiles+'</div>'+
+    '</div>';
+  }
+
+  function calendarCard(V, portrait){
+    var viewBtns = V.calViewBtns.map(function(vb){ return '<div data-act="'+vb.act+'" style="'+vb.style+'">'+vb.label+'</div>'; }).join('');
+    var bodyHtml = '';
+    if(V.calIsList){
+      bodyHtml = '<div style="display:flex;flex-direction:column;gap:8px;">'+
+        V.calEvents.map(function(e){ return '<div style="display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:11px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);"><div style="width:4px;align-self:stretch;border-radius:3px;background:'+e.col+';"></div><div style="flex:1;min-width:0;"><div style="font:600 13px/1 \'Space Grotesk\';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(e.title)+'</div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#8b97a8;margin-top:6px;">'+esc(e.when)+'</div></div></div>'; }).join('')+
+        (V.calWeekEmpty?'<div style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#566;padding:10px 2px;">No events this week</div>':'')+'</div>';
+    } else if(V.calIsDay){
+      bodyHtml = '<div style="display:flex;flex-direction:column;gap:8px;"><div style="font:600 9px/1 \'JetBrains Mono\',monospace;letter-spacing:.08em;text-transform:uppercase;color:#5a6473;">'+esc(V.calPeriodLabel)+'</div>'+
+        V.calDayEvents.map(function(e){ return '<div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:11px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);"><span style="font:700 13px/1 \'JetBrains Mono\',monospace;color:#bfe2ff;">'+e.when+'</span><div style="width:4px;align-self:stretch;border-radius:3px;background:'+e.col+';"></div><div style="flex:1;min-width:0;font:600 13px/1 \'Space Grotesk\';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(e.title)+'</div></div>'; }).join('')+
+        (V.calDayEmpty?'<div style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#566;padding:10px 2px;">No events</div>':'')+'</div>';
+    } else {
+      bodyHtml = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:5px;">'+V.calWeekdays.map(function(w){ return '<span style="text-align:center;font:600 8px/1 \'JetBrains Mono\',monospace;color:#566;">'+w+'</span>'; }).join('')+'</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">'+V.calCells.map(function(c){ return '<div style="'+c.style+'">'+c.day+(c.dot?'<span style="width:4px;height:4px;border-radius:50%;background:#00b3ff;"></span>':'')+'</div>'; }).join('')+'</div>';
+    }
+    var outer = portrait ? 'flex:none;' : 'flex:1;';
+    return '<div style="'+outer+'background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:13px;display:flex;flex-direction:column;min-height:0;overflow:hidden;">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:11px;"><div style="display:flex;align-items:center;gap:5px;"><span data-act="cal-prev" class="ms" style="font-size:17px;color:#6b7787;cursor:pointer;">chevron_left</span><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.08em;text-transform:uppercase;color:#5a6473;white-space:nowrap;">'+esc(V.calPeriodLabel)+'</span><span data-act="cal-next" class="ms" style="font-size:17px;color:#6b7787;cursor:pointer;">chevron_right</span></div><div style="display:flex;gap:2px;background:rgba(255,255,255,.04);border-radius:9px;padding:2px;width:150px;">'+viewBtns+'</div></div>'+
+      '<div style="flex:1;min-height:0;overflow:hidden;">'+bodyHtml+'</div>'+
+    '</div>';
+  }
+
+  function climateTile(V){
+    var chips = V.climateActive.map(function(i){ return '<div data-act="'+i.act+'" style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;flex:none;padding:7px 9px;border-radius:10px;border:1px solid rgba(0,179,255,.3);background:rgba(0,179,255,.07);"><span style="'+i.iconStyle+'">'+i.icon+'</span><span style="font:600 8px/1 \'JetBrains Mono\',monospace;color:#7fb4d8;white-space:nowrap;">'+i.label+'</span></div>'; }).join('');
+    return '<div data-act="nav:climate" style="flex:2.15;background:#0c0f15;border:1px solid rgba(0,179,255,.2);border-radius:13px;padding:9px 12px;display:flex;flex-direction:column;justify-content:center;gap:7px;cursor:pointer;overflow:hidden;">'+
+      '<div style="display:flex;align-items:center;gap:12px;">'+chips+(V.climateNoneActive?'<span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#566;">All climate off</span>':'')+'<span class="ms" style="font-size:17px;color:#3d4756;margin-left:auto;flex:none;">chevron_right</span></div>'+
+      '<div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#6b7787;white-space:nowrap;">'+V.climateMetric+' · tap to turn off</div>'+
+    '</div>';
+  }
+  function lightsTile(V){
+    var chips = V.lightsActive.map(function(i){ return '<div data-act="'+i.act+'" style="display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;flex:none;padding:7px 9px;border-radius:10px;border:1px solid rgba(0,179,255,.3);background:rgba(0,179,255,.07);"><span style="'+i.iconStyle+'">lightbulb</span><span style="font:600 8px/1 \'JetBrains Mono\',monospace;color:#7fb4d8;white-space:nowrap;">'+i.label+'</span></div>'; }).join('');
+    return '<div data-act="nav:climate" style="flex:2.15;background:#0c0f15;border:1px solid rgba(0,179,255,.2);border-radius:13px;padding:9px 12px;display:flex;flex-direction:column;justify-content:center;gap:7px;cursor:pointer;overflow:hidden;">'+
+      '<div style="display:flex;align-items:center;gap:12px;">'+chips+(V.lightsNoneActive?'<span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#566;">All lights off</span>':'')+'<span class="ms" style="font-size:17px;color:#3d4756;margin-left:auto;flex:none;">chevron_right</span></div>'+
+      '<div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#6b7787;white-space:nowrap;">'+V.lightsMetric+' · tap to turn off</div>'+
+    '</div>';
+  }
+  function systemTilesRow(V){
+    return V.systemTiles.map(function(s){ return '<div data-act="'+s.act+'" style="flex:1;background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:13px;padding:12px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;"><span class="ms" style="font-size:24px;color:'+s.col+';font-variation-settings:\'FILL\' '+s.fill+';">'+s.icon+'</span><div style="min-width:0;"><div style="font:600 16px/1 \'Space Grotesk\';">'+s.metric+'</div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;margin-top:5px;white-space:nowrap;">'+esc(s.label)+'</div></div><span class="ms" style="font-size:17px;color:#3d4756;margin-left:auto;">chevron_right</span></div>'; }).join('');
+  }
+  function scenesDock(V){
+    var sc = V.scenes.map(function(s){ return '<div data-act="'+s.act+'" style="display:flex;align-items:center;gap:8px;height:38px;padding:0 16px;border-radius:11px;background:linear-gradient(150deg,rgba(0,179,255,.16),rgba(0,179,255,.04));border:1px solid rgba(0,179,255,.32);cursor:pointer;flex:none;"><span class="ms" style="font-size:18px;color:#00b3ff;font-variation-settings:\'FILL\' 1;">'+s.icon+'</span><span style="font:600 12px/1 \'Space Grotesk\';color:#bfe2ff;">'+s.label+'</span></div>'; }).join('');
+    return '<div style="flex:none;height:54px;background:rgba(10,13,19,.6);border:1px solid rgba(255,255,255,.06);border-radius:14px;display:flex;align-items:center;gap:9px;padding:0 12px;"><div style="display:flex;align-items:center;gap:9px;flex:none;"><span style="font:600 9px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#566;">Scenes</span>'+sc+'</div></div>';
+  }
+
+  /* ---------- OVERVIEW ---------- */
+  function overviewLandscape(V){
+    return '<div style="position:absolute;inset:0;padding:14px 18px;display:flex;flex-direction:column;gap:12px;overflow:hidden;">'+
+      '<div style="display:flex;gap:12px;height:236px;flex:none;">'+carHero(V,{})+'<div style="flex:1;display:flex;flex-direction:column;gap:12px;min-width:0;">'+whosHome(V,{})+'</div></div>'+
+      '<div style="display:flex;gap:12px;flex:1;min-height:0;">'+cameraStrip(V,false)+calendarCard(V,false)+'</div>'+
+      '<div style="display:flex;gap:12px;flex:none;height:84px;">'+climateTile(V)+lightsTile(V)+systemTilesRow(V)+'</div>'+
+      scenesDock(V)+
+    '</div>';
+  }
+  function overviewPortrait(V){
+    return '<div style="position:absolute;inset:0;padding:14px 18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;overflow-x:hidden;">'+
+      '<div style="display:flex;flex-direction:column;gap:14px;flex:none;"><div style="flex:none;display:flex;flex-direction:column;gap:12px;min-width:0;">'+whosHome(V,{portrait:true})+'</div></div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:12px;flex:none;">'+climateTile(V)+lightsTile(V)+'</div>'+
+      '<div style="display:flex;flex-direction:column;gap:14px;flex:none;">'+cameraStrip(V,true)+calendarCard(V,true)+'</div>'+
+      carHero(V,{portrait:true})+
+      '<div style="display:flex;gap:12px;flex:none;">'+systemTilesRow(V)+'</div>'+
+      scenesDock(V)+
+    '</div>';
+  }
+
+  /* ---------- DEVICES (climate + lights) ---------- */
+  function devicesView(V){
+    var portrait = state.layout==='portrait';
+    var zones = V.climateZones.map(function(z){ return '<div data-act="'+z.act+'" style="'+z.style+'"><div style="display:flex;align-items:center;justify-content:space-between;"><span style="'+z.iconStyle+'">ac_unit</span><span style="'+z.dotStyle+'"></span></div><div style="font:700 27px/1 \'Space Grotesk\';margin-top:13px;">'+z.temp+'</div><div style="font:600 12px/1 \'Space Grotesk\';margin-top:7px;">'+z.name+'</div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;margin-top:5px;">'+z.mode+'</div></div>'; }).join('');
+    var fans = V.fans.map(function(f){
+      if(portrait){
+        var controls = f.adjustable ? '<input type="range" min="1" max="10" value="'+f.speed+'" data-speed="'+f.key+'" style="width:100%;margin-top:11px;accent-color:#00b3ff;cursor:pointer;"><div data-act="fan-osc:'+f.key+'" style="'+f.oscStyle+'"><span class="ms" style="font-size:13px;">cached</span></div>' : '';
+        return '<div style="'+f.style+'"><div data-act="'+f.act+'" style="display:flex;flex-direction:column;align-items:center;cursor:pointer;"><span style="'+f.iconStyle+'">'+f.icon+'</span><div style="font:600 12px/1 \'Space Grotesk\';margin-top:8px;">'+f.name+'</div></div>'+controls+'</div>';
+      }
+      return '<div data-act="'+f.act+'" style="'+f.style+';cursor:pointer;"><span style="'+f.iconStyle+'">'+f.icon+'</span><div style="font:600 12px/1 \'Space Grotesk\';margin-top:9px;">'+f.name+'</div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:'+f.stateCol+';margin-top:5px;">'+f.state+'</div></div>';
+    }).join('');
+    var air = V.airRooms.map(function(r){ return '<div style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:13px;display:flex;align-items:center;gap:13px;"><div style="'+r.aqiStyle+'">'+r.aqi+'</div><div><div style="font:600 13px/1 \'Space Grotesk\';">'+r.room+'</div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;margin-top:5px;">AQI · '+r.label+'</div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:4px;">'+esc(r.meta)+'</div></div></div>'; }).join('');
+    var lightCols = portrait ? 1 : 2;
+    var lights = V.lightAreas.map(function(g){
+      var items = g.items.map(function(l){ return '<div data-act="'+l.act+'" style="'+l.style+'"><span style="'+l.iconStyle+'">lightbulb</span><div style="flex:1;min-width:0;"><div style="font:600 12px/1 \'Space Grotesk\';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+l.name+'</div></div></div>'; }).join('');
+      return '<div><div style="font:600 12px/1 \'Space Grotesk\';color:#8b97a8;margin-bottom:6px;">'+g.area+'</div><div style="display:grid;grid-template-columns:repeat('+lightCols+',1fr);gap:7px;">'+items+'</div></div>';
+    }).join('');
+    var rightFlex = portrait ? '1.15' : '1';
+    var rightOverflow = portrait ? 'hidden' : 'auto';
+    return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;gap:18px;overflow:hidden;">'+
+      '<div style="flex:2;display:flex;flex-direction:column;gap:11px;min-width:0;overflow:hidden;">'+
+        '<div style="display:flex;align-items:center;gap:14px;"><div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Air conditioning</div><div style="display:flex;align-items:center;gap:8px;margin-left:auto;background:rgba(0,209,139,.08);border:1px solid rgba(0,209,139,.25);border-radius:10px;padding:7px 11px;"><span class="ms" style="font-size:16px;color:#00d18b;">eco</span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;">Outdoor AQI '+V.aqi_out+' · Good · '+V.temp_out+'°C</span></div></div>'+
+        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">'+zones+'</div>'+
+        '<div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;margin-top:2px;">Fans &amp; purifiers</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;">'+fans+'</div>'+
+        '<div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;margin-top:2px;">Indoor air quality</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">'+air+'</div>'+
+      '</div>'+
+      '<div style="flex:'+rightFlex+';display:flex;flex-direction:column;gap:'+(portrait?'9':'8')+'px;min-width:0;overflow:'+rightOverflow+';border-left:1px solid rgba(255,255,255,.07);padding-left:18px;">'+
+        '<div style="display:flex;align-items:center;gap:10px;"><span class="ms" style="font-size:18px;color:#00b3ff;font-variation-settings:\'FILL\' 1;">lightbulb</span><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Lighting · '+V.lightsOn+' of '+V.lightsTotal+' on</span></div>'+
+        lights+
+      '</div>'+
+    '</div>';
+  }
+
+  /* ---------- SECURITY + NAS ---------- */
+  function securityView(V){
+    var cams = V.cameras.map(function(c){
+      var bg = c.img ? 'background-image:url('+c.img+');background-size:cover;background-position:center;' : '';
+      return '<div data-act="'+c.act+'" style="border-radius:14px;overflow:hidden;position:relative;background:linear-gradient(150deg,#141d27,#0a0f15);'+bg+'border:1px solid rgba(255,255,255,.07);cursor:pointer;min-height:240px;">'+
+        (c.img?'':'<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.035) 0 1px,transparent 1px 3px);"></div><div style="position:absolute;inset:0;background:radial-gradient(80% 60% at 50% 42%,rgba(0,179,255,.07),transparent 70%);"></div><div style="position:absolute;left:0;right:0;height:70px;background:linear-gradient(180deg,transparent,rgba(0,179,255,.16),transparent);animation:scan 5s linear infinite;"></div><span class="ms" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:46px;color:rgba(255,255,255,.12);">'+c.glyph+'</span>')+
+        '<div style="position:absolute;top:11px;left:12px;display:flex;align-items:center;gap:6px;"><span style="width:7px;height:7px;border-radius:50%;background:#ff5d5d;animation:blink 1.4s ease-in-out infinite;"></span><span style="font:600 10px/1 \'JetBrains Mono\',monospace;color:#ff9d9d;letter-spacing:.1em;">REC</span></div>'+
+        '<div style="position:absolute;bottom:12px;left:12px;right:12px;"><div style="font:600 15px/1 \'Space Grotesk\';color:#eef3f9;text-shadow:0 1px 4px #000;">'+c.name+'</div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#9aa6b6;margin-top:5px;">'+esc(c.sub)+' · tap to enlarge</div></div>'+
+      '</div>';
+    }).join('');
+    var gauges = V.nas.gauges.map(function(g){ return '<div style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;display:flex;flex-direction:column;align-items:center;"><div style="'+g.ringStyle+'"><div style="width:78px;height:78px;border-radius:50%;background:#0c0f15;display:flex;flex-direction:column;align-items:center;justify-content:center;"><span style="font:700 22px/1 \'Space Grotesk\';color:'+g.col+';">'+g.value+'</span><span style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:3px;">'+g.unit+'</span></div></div><div style="font:600 12px/1 \'Space Grotesk\';color:#cdd7e2;margin-top:13px;">'+g.label+'</div></div>'; }).join('');
+    var hdds = V.nas.hdds.map(function(h){ return '<div style="flex:1;background:rgba(255,255,255,.02);border:1px solid rgba(0,209,139,.18);border-radius:11px;padding:12px;text-align:center;"><span class="ms" style="font-size:20px;color:#00d18b;">hard_drive</span><div style="font:700 16px/1 \'Space Grotesk\';margin-top:9px;">'+h.temp+'°</div><div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:5px;">'+h.name+'</div></div>'; }).join('');
+    var gateChip = V.gateOpen ? '<div style="display:flex;align-items:center;gap:7px;background:rgba(255,93,93,.1);border:1px solid rgba(255,93,93,.3);border-radius:10px;padding:8px 12px;"><span class="ms" style="font-size:16px;color:#ff7a7a;font-variation-settings:\'FILL\' 1;">sensor_door</span><span style="font:600 11px/1 \'Space Grotesk\';color:#ffb3b3;">Gate OPEN</span></div>' : '';
+    return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:14px;overflow:auto;">'+
+      '<div style="display:flex;align-items:center;gap:14px;"><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Synology Surveillance · 3 cameras recording</span><div style="margin-left:auto;display:flex;gap:10px;">'+gateChip+'<div style="display:flex;align-items:center;gap:7px;background:rgba(0,179,255,.1);border:1px solid rgba(0,179,255,.3);border-radius:10px;padding:8px 12px;"><span class="ms" style="font-size:16px;color:#6fb6ff;font-variation-settings:\'FILL\' 1;">shield</span><span style="font:600 11px/1 \'Space Grotesk\';color:#bfe2ff;">'+(V.armed?'Armed away':'Disarmed')+'</span></div></div></div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;height:240px;flex:none;">'+cams+'</div>'+
+      '<div style="display:flex;align-items:center;gap:12px;margin-top:6px;padding-top:14px;border-top:1px solid rgba(255,255,255,.06);"><span class="ms" style="font-size:20px;color:#00d18b;">dns</span><span style="font:600 14px/1 \'Space Grotesk\';">Synology NAS · DS1517</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;background:rgba(0,209,139,.1);border:1px solid rgba(0,209,139,.25);border-radius:8px;padding:5px 9px;">Security: Safe · DSM up-to-date</span><span style="margin-left:auto;font:500 11px/1 \'JetBrains Mono\',monospace;color:#6b7787;">Uptime '+V.nas.uptime+'</span></div>'+
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;">'+gauges+'</div>'+
+      '<div style="display:flex;gap:14px;">'+
+        '<div style="flex:1.4;background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;"><div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;margin-bottom:14px;">Storage · 5 drives · Volume 1</div><div style="display:flex;gap:10px;">'+hdds+'</div><div style="margin-top:14px;"><div style="display:flex;justify-content:space-between;font:500 11px/1 \'JetBrains Mono\',monospace;color:#8b97a8;"><span>Volume 1 · '+V.nas.volTb+' TB used</span><span>'+V.nas.volPct+'%</span></div><div style="height:8px;border-radius:5px;background:rgba(255,255,255,.06);margin-top:8px;overflow:hidden;"><div style="height:100%;width:'+V.nas.volPct+'%;background:linear-gradient(90deg,#00b3ff,#00d18b);border-radius:5px;"></div></div></div></div>'+
+        '<div style="flex:1;background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:14px;"><div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Network throughput</div><div style="display:flex;align-items:center;gap:11px;"><span class="ms" style="font-size:22px;color:#00b3ff;">download</span><div><div style="font:700 20px/1 \'Space Grotesk\';">'+V.nas.dl+'<span style="font-size:12px;color:#8b97a8;"> kB/s</span></div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:5px;">Download</div></div></div><div style="display:flex;align-items:center;gap:11px;"><span class="ms" style="font-size:22px;color:#00d18b;">upload</span><div><div style="font:700 20px/1 \'Space Grotesk\';">'+V.nas.ul+'<span style="font-size:12px;color:#8b97a8;"> kB/s</span></div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:5px;">Upload</div></div></div></div>'+
+        '<div style="flex:1;background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:14px;"><div style="display:flex;align-items:center;gap:10px;"><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Claude AI usage</span><span style="font:600 9px/1 \'JetBrains Mono\',monospace;color:#bfa6ff;background:rgba(176,124,255,.12);border:1px solid rgba(176,124,255,.32);border-radius:7px;padding:4px 8px;">'+V.claude.plan+'</span></div><div style="display:flex;align-items:center;gap:11px;"><span class="ms" style="font-size:22px;color:#00b3ff;font-variation-settings:\'FILL\' 1;">bolt</span><div style="flex:1;"><div style="display:flex;align-items:baseline;gap:6px;"><span style="font:700 20px/1 \'Space Grotesk\';">'+V.claude.sess+'<span style="font-size:12px;color:#8b97a8;">%</span></span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;margin-left:auto;">resets '+esc(V.claude.sessReset)+'</span></div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:5px;">Session usage</div></div></div><div style="display:flex;align-items:center;gap:11px;"><span class="ms" style="font-size:22px;color:#b07cff;">calendar_month</span><div style="flex:1;"><div style="display:flex;align-items:baseline;gap:6px;"><span style="font:700 20px/1 \'Space Grotesk\';">'+V.claude.week+'<span style="font-size:12px;color:#8b97a8;">%</span></span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#8b97a8;margin-left:auto;">'+esc(V.claude.weekReset)+'</span></div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:5px;">Weekly usage · pace '+V.claude.pace+'</div></div></div></div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  /* ---------- FAMILY ---------- */
+  function familyView(V){
+    var people = V.presence.map(function(p){ return '<div data-act="dlg-map:'+p.id+'" style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;display:flex;align-items:center;gap:14px;cursor:pointer;position:relative;"><div style="'+p.ringStyleLg+'">'+(p.noPhoto?'<span style="'+p.glyphStyleLg+'">'+p.glyph+'</span>':'')+'</div><div style="flex:1;"><div style="font:600 17px/1 \'Space Grotesk\';">'+p.name+'</div><div style="display:flex;align-items:center;gap:6px;margin-top:8px;"><span style="width:7px;height:7px;border-radius:50%;background:'+p.dotCol+';"></span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">'+esc(p.detail)+'</span></div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:6px;">'+esc(p.sub)+'</div></div><div data-act="upload:'+p.id+'" style="position:absolute;top:12px;right:12px;width:22px;height:22px;border-radius:50%;background:#11161f;border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;"><span class="ms" style="font-size:13px;color:#7a8696;">photo_camera</span></div></div>'; }).join('');
+    var kids = V.kids.map(function(k){
+      var bars = k.bars.map(function(b){ return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;justify-content:flex-end;height:100%;"><span style="font:600 11px/1 \'JetBrains Mono\',monospace;color:#cdd7e2;">'+b.min+'m</span><div style="'+b.barStyle+'"></div><span style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#6b7787;">'+b.label+'</span></div>'; }).join('');
+      return '<div data-act="dlg-screen:'+k.id+'" style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;cursor:pointer;"><div style="display:flex;align-items:center;gap:13px;"><div style="'+k.ringStyleLg+'">'+(k.noPhoto?'<span style="font:600 19px/1 \'Space Grotesk\';color:#9fb0c4;">'+k.glyph+'</span>':'')+'</div><div style="flex:1;"><div style="font:600 17px/1 \'Space Grotesk\';">'+k.name+'</div><div style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#8b97a8;margin-top:7px;">'+esc(k.deviceLabel)+' · '+k.points+' pts</div></div><span style="'+k.badgeStyle+'">'+esc(k.statusLabel)+'</span></div><div style="display:flex;gap:10px;margin-top:16px;align-items:flex-end;height:90px;">'+bars+'</div></div>';
+    }).join('');
+    return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:14px;overflow:auto;">'+
+      '<div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">People &amp; presence · tap for location</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">'+people+'</div>'+
+      '<div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;margin-top:6px;">Kids · screen time · tap for breakdown</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">'+kids+'</div>'+
+    '</div>';
+  }
+
+  /* ---------- IFRAME TABS ---------- */
+  function iframeView(V, kind){
+    if(kind==='screentime'){
+      return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:12px;"><div style="display:flex;align-items:center;gap:12px;flex:none;"><span class="ms" style="font-size:20px;color:#00b3ff;">hourglass_top</span><span style="font:600 14px/1 \'Space Grotesk\';">Screen Time</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;">screentime.robertnaquila.synology.me · '+V.st_pending+' pending approvals</span><span style="margin-left:auto;font:500 10px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;background:rgba(0,209,139,.1);border:1px solid rgba(0,209,139,.25);border-radius:8px;padding:5px 9px;">App '+V.st_health+' · rev '+V.st_rev+'</span></div>'+
+        '<div style="flex:1;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08);position:relative;background:#0c0f15;"><div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;"><span class="ms" style="font-size:34px;color:#2c3540;">cloud_sync</span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#566;">Connecting to NAS…</span></div><iframe src="'+NAS_URLS.screentime+'" style="position:relative;width:100%;height:100%;border:0;background:transparent;" referrerpolicy="no-referrer"></iframe></div></div>';
+    }
+    return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:12px;"><div style="display:flex;align-items:center;gap:12px;flex:none;"><span class="ms" style="font-size:20px;color:#00b3ff;">local_parking</span><span style="font:600 14px/1 \'Space Grotesk\';">Update Carpark</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;">parking.robertnaquila.synology.me</span><div style="margin-left:auto;display:flex;gap:8px;"><span style="font:600 11px/1 \'Space Grotesk\';color:#bfe2ff;background:rgba(0,179,255,.1);border:1px solid rgba(0,179,255,.28);border-radius:8px;padding:6px 10px;">BYD · '+V.park_floor+' · '+V.park_remarks+'</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;background:rgba(0,209,139,.1);border:1px solid rgba(0,209,139,.25);border-radius:8px;padding:6px 9px;">Server '+V.park_server+' · '+V.park_time+'</span></div></div>'+
+      '<div style="flex:1;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08);position:relative;background:#0c0f15;"><div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;"><span class="ms" style="font-size:34px;color:#2c3540;">cloud_sync</span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#566;">Connecting to NAS…</span></div><iframe src="'+NAS_URLS.carpark+'" style="position:relative;width:100%;height:100%;border:0;background:transparent;" referrerpolicy="no-referrer"></iframe></div></div>';
+  }
+
+  /* ---------- DIALOGS ---------- */
+  function dialogOverlay(V){
+    if(!V.dialogOpen) return '';
+    var inner='';
+    if(V.dlg.kind==='map'){
+      var m=V.mapData;
+      var stats=m.stats.map(function(s){ return '<div style="flex:1;"><div style="font:500 9px/1 \'JetBrains Mono\',monospace;letter-spacing:.08em;text-transform:uppercase;color:#566;">'+s.label+'</div><div style="font:700 18px/1 \'Space Grotesk\';margin-top:9px;color:'+s.col+';">'+s.value+'</div></div>'; }).join('');
+      inner='<div data-act="stop" style="width:780px;max-width:92vw;background:#0c0f15;border:1px solid rgba(0,179,255,.22);border-radius:20px;overflow:hidden;animation:pop .25s ease;box-shadow:0 30px 80px rgba(0,0,0,.6);">'+
+        '<div style="display:flex;align-items:center;gap:13px;padding:18px 20px;border-bottom:1px solid rgba(255,255,255,.06);"><div style="'+m.ringStyle+'">'+(m.noPhoto?'<span style="'+m.glyphStyle+'">'+m.glyph+'</span>':'')+'</div><div style="flex:1;"><div style="font:700 20px/1 \'Space Grotesk\';">'+m.name+'</div><div style="display:flex;align-items:center;gap:6px;margin-top:7px;"><span style="width:8px;height:8px;border-radius:50%;background:'+m.dotCol+';"></span><span style="font:500 12px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">'+esc(m.status)+'</span></div></div><span data-act="dlg-close" class="ms" style="font-size:24px;color:#6b7787;cursor:pointer;">close</span></div>'+
+        '<div style="height:300px;position:relative;overflow:hidden;background:radial-gradient(120% 120% at 50% 50%,#0e1a26,#070b10);"><div style="position:absolute;inset:0;background-image:linear-gradient(rgba(0,179,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(0,179,255,.06) 1px,transparent 1px);background-size:34px 34px;"></div><div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:200px;height:200px;border:1px solid rgba(0,179,255,.12);border-radius:50%;"></div><div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:120px;height:120px;border:1px solid rgba(0,179,255,.16);border-radius:50%;"></div><div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:5px;"><span class="ms" style="font-size:18px;color:#6b7787;">home</span></div><div style="position:absolute;'+m.markerPos+';transform:translate(-50%,-50%);"><div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:34px;height:34px;border-radius:50%;background:'+m.markerCol+';opacity:.4;animation:ping 1.8s ease-out infinite;"></div><div style="position:relative;width:16px;height:16px;border-radius:50%;background:'+m.markerCol+';border:2px solid #06080c;box-shadow:0 0 14px '+m.markerCol+';"></div></div><div style="position:absolute;left:16px;bottom:14px;font:500 10px/1.5 \'JetBrains Mono\',monospace;color:#566;">'+m.coords+'<br>EAST · SINGAPORE</div></div>'+
+        '<div style="display:flex;padding:16px 20px;gap:14px;">'+stats+'</div>'+
+        (m.isCar ? '<div style="padding:0 20px 18px;"><div style="font:600 9px/1 \'JetBrains Mono\',monospace;letter-spacing:.1em;text-transform:uppercase;color:#5a6473;margin-bottom:11px;">Remote controls</div><div style="display:flex;gap:10px;">'+m.controls.map(function(c){ return '<div data-act="'+c.act+'" style="'+c.style+'"><span class="ms" style="'+c.iconStyle+'">'+c.icon+'</span><div style="font:600 11px/1 \'Space Grotesk\';color:#cdd7e2;">'+c.label+'</div><div style="'+c.subStyle+'">'+c.sub+'</div></div>'; }).join('')+'</div></div>' : '')+
+      '</div>';
+    } else if(V.dlg.kind==='screen'){
+      var k=V.kidData;
+      var ticks=k.dayTicks.map(function(t){ return '<span style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#566;">'+t+'</span>'; }).join('');
+      inner='<div data-act="stop" style="width:560px;max-width:92vw;background:#0c0f15;border:1px solid rgba(0,179,255,.22);border-radius:20px;overflow:hidden;animation:pop .25s ease;box-shadow:0 30px 80px rgba(0,0,0,.6);">'+
+        '<div style="display:flex;align-items:center;gap:13px;padding:18px 20px;border-bottom:1px solid rgba(255,255,255,.06);"><div style="'+k.ringStyle+'">'+(k.noPhoto?'<span style="font:600 18px/1 \'Space Grotesk\';color:#9fb0c4;">'+k.glyph+'</span>':'')+'</div><div style="flex:1;"><div style="font:700 20px/1 \'Space Grotesk\';">'+k.name+'</div><div style="font:500 12px/1 \'JetBrains Mono\',monospace;color:#8b97a8;margin-top:7px;">'+esc(k.deviceLabel)+' · '+esc(k.statusLabel)+'</div></div><span data-act="dlg-close" class="ms" style="font-size:24px;color:#6b7787;cursor:pointer;">close</span></div>'+
+        '<div style="padding:20px;"><div style="display:flex;gap:12px;margin-bottom:20px;"><div style="flex:1;background:rgba(0,179,255,.06);border:1px solid rgba(0,179,255,.2);border-radius:12px;padding:13px;"><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#6fb6ff;letter-spacing:.08em;">POINTS</div><div style="font:700 24px/1 \'Space Grotesk\';margin-top:9px;">'+k.points+'</div></div><div style="flex:1;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:13px;"><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#566;letter-spacing:.08em;">USED TODAY</div><div style="font:700 24px/1 \'Space Grotesk\';margin-top:9px;">'+k.used+'</div></div><div style="flex:1;background:rgba(255,255,255,.02);border:1px solid rgba(255,168,76,.22);border-radius:12px;padding:13px;"><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#b78a5e;letter-spacing:.08em;">MIN LEFT</div><div style="font:700 24px/1 \'Space Grotesk\';margin-top:9px;color:#ffae5c;">'+k.left+'</div></div></div>'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;"><span style="font:600 10px/1 \'JetBrains Mono\',monospace;letter-spacing:.1em;text-transform:uppercase;color:#5a6473;">Time per device · this week</span><div style="display:flex;align-items:center;gap:11px;"><div style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:3px;border-radius:2px;background:#00b3ff;"></span><span style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">iPad</span></div><div style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:3px;border-radius:2px;background:#b07cff;"></span><span style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">TV</span></div><div style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:3px;border-radius:2px;background:#00d18b;"></span><span style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">Switch</span></div></div></div>'+
+        '<svg viewBox="0 0 300 100" preserveAspectRatio="none" style="width:100%;height:148px;display:block;overflow:visible;"><polyline points="'+k.ipadLine+'" fill="none" stroke="#00b3ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline><polyline points="'+k.tvLine+'" fill="none" stroke="#b07cff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline><polyline points="'+k.swLine+'" fill="none" stroke="#00d18b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></svg>'+
+        '<div style="display:flex;justify-content:space-between;margin-top:8px;padding:0 2px;">'+ticks+'</div></div>'+
+      '</div>';
+    } else if(V.dlg.kind==='cam'){
+      var c=V.camData;
+      var bg = c.img ? 'background-image:url('+c.img+');background-size:cover;background-position:center;' : 'background:linear-gradient(150deg,#141d27,#0a0f15);';
+      inner='<div data-act="stop" style="width:820px;max-width:92vw;background:#0c0f15;border:1px solid rgba(0,179,255,.22);border-radius:20px;overflow:hidden;animation:pop .25s ease;box-shadow:0 30px 80px rgba(0,0,0,.6);">'+
+        '<div style="height:420px;position:relative;overflow:hidden;'+bg+'">'+(c.img?'':'<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,255,255,.03) 0 1px,transparent 1px 3px);"></div><div style="position:absolute;inset:0;background:radial-gradient(70% 60% at 50% 42%,rgba(0,179,255,.08),transparent 70%);"></div><div style="position:absolute;left:0;right:0;height:90px;background:linear-gradient(180deg,transparent,rgba(0,179,255,.16),transparent);animation:scan 5s linear infinite;"></div><span class="ms" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:64px;color:rgba(255,255,255,.1);">'+c.glyph+'</span>')+
+        '<div style="position:absolute;top:14px;left:16px;display:flex;align-items:center;gap:7px;"><span style="width:8px;height:8px;border-radius:50%;background:#ff5d5d;animation:blink 1.4s ease-in-out infinite;"></span><span style="font:600 11px/1 \'JetBrains Mono\',monospace;color:#ff9d9d;letter-spacing:.1em;">REC · LIVE</span></div><span data-act="dlg-close" class="ms" style="position:absolute;top:12px;right:14px;font-size:24px;color:#cdd7e2;cursor:pointer;background:rgba(0,0,0,.4);border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">close</span><div style="position:absolute;bottom:16px;left:18px;"><div style="font:700 20px/1 \'Space Grotesk\';color:#eef3f9;text-shadow:0 1px 4px #000;">'+c.name+'</div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#9aa6b6;margin-top:6px;">'+esc(c.sub)+' · Synology Surveillance</div></div></div>'+
+        '<div style="display:flex;align-items:center;gap:10px;padding:14px 18px;"><div data-act="nav:security" style="display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:11px;background:linear-gradient(150deg,rgba(0,179,255,.18),rgba(0,179,255,.05));border:1px solid rgba(0,179,255,.35);cursor:pointer;"><span class="ms" style="font-size:18px;color:#00b3ff;">videocam</span><span style="font:600 13px/1 \'Space Grotesk\';color:#bfe2ff;">Open Security page</span></div><div style="display:flex;align-items:center;gap:8px;padding:10px 16px;border-radius:11px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);cursor:pointer;"><span class="ms" style="font-size:18px;color:#9aa6b6;">mic</span><span style="font:600 13px/1 \'Space Grotesk\';color:#cdd7e2;">Talk</span></div><span style="margin-left:auto;font:500 10px/1 \'JetBrains Mono\',monospace;color:#566;">1080p · H.265</span></div>'+
+      '</div>';
+    }
+    return '<div data-act="dlg-close" style="position:absolute;inset:0;background:rgba(3,5,8,.72);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:50;animation:fadein .2s ease;">'+inner+'</div>';
+  }
+
+  /* ---------- SETTINGS DIALOG (HA connection) ---------- */
+  function settingsOverlay(){
+    if(!state.showSettings) return '';
+    var cfg = HA.cfg || { url:'', token:'' };
+    var statusLine = state.connected ? '<span style="color:#7fe3c0;">● Connected to Home Assistant</span>'
+      : (state.connError ? '<span style="color:#ffae5c;">○ '+esc(state.connError)+' — running in demo mode</span>' : '<span style="color:#8b97a8;">○ Not connected — running in demo mode</span>');
+    return '<div data-act="settings-close" style="position:absolute;inset:0;background:rgba(3,5,8,.78);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:60;animation:fadein .2s ease;">'+
+      '<div data-act="stop" style="width:520px;max-width:92vw;background:#0c0f15;border:1px solid rgba(0,179,255,.22);border-radius:20px;overflow:hidden;animation:pop .25s ease;box-shadow:0 30px 80px rgba(0,0,0,.6);">'+
+        '<div style="display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid rgba(255,255,255,.06);"><span class="ms" style="font-size:22px;color:#00b3ff;">settings_ethernet</span><div style="flex:1;"><div style="font:700 18px/1 \'Space Grotesk\';">Connect to Home Assistant</div><div style="font:500 11px/1.5 \'JetBrains Mono\',monospace;color:#8b97a8;margin-top:7px;">'+statusLine+'</div></div><span data-act="settings-close" class="ms" style="font-size:24px;color:#6b7787;cursor:pointer;">close</span></div>'+
+        '<div style="padding:20px;display:flex;flex-direction:column;gap:14px;">'+
+          '<label style="font:600 10px/1 \'JetBrains Mono\',monospace;letter-spacing:.08em;text-transform:uppercase;color:#5a6473;">HA Base URL<input id="cfgUrl" placeholder="http://homeassistant.local:8123" value="'+esc(cfg.url)+'" style="width:100%;margin-top:8px;padding:11px 13px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);color:#eef3f9;font:500 13px/1 \'JetBrains Mono\',monospace;outline:none;"></label>'+
+          '<label style="font:600 10px/1 \'JetBrains Mono\',monospace;letter-spacing:.08em;text-transform:uppercase;color:#5a6473;">Long-Lived Access Token<input id="cfgTok" type="password" placeholder="Profile → Security → Long-lived tokens" value="'+esc(cfg.token)+'" style="width:100%;margin-top:8px;padding:11px 13px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);color:#eef3f9;font:500 13px/1 \'JetBrains Mono\',monospace;outline:none;"></label>'+
+          '<div style="font:500 10px/1.6 \'JetBrains Mono\',monospace;color:#566;">Stored locally in this browser. Tap a device to call the matching HA service; states stream live over the WebSocket API.</div>'+
+          '<div style="display:flex;gap:10px;margin-top:4px;"><div data-act="settings-save" style="flex:1;text-align:center;padding:12px;border-radius:11px;background:linear-gradient(150deg,rgba(0,179,255,.2),rgba(0,179,255,.06));border:1px solid rgba(0,179,255,.4);cursor:pointer;font:600 13px/1 \'Space Grotesk\';color:#bfe2ff;">Connect &amp; Save</div><div data-act="settings-clear" style="padding:12px 16px;border-radius:11px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);cursor:pointer;font:600 13px/1 \'Space Grotesk\';color:#cdd7e2;">Disconnect</div></div>'+
+        '</div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  /* =====================================================================
+     RENDER
+     ===================================================================== */
+  function render(){
+    var V = getVals();
+    var body;
+    switch(state.tab){
+      case 'climate': body = devicesView(V); break;
+      case 'security': body = securityView(V); break;
+      case 'family': body = familyView(V); break;
+      case 'screentime': body = iframeView(V,'screentime'); break;
+      case 'carpark': body = iframeView(V,'carpark'); break;
+      default: body = (state.layout==='portrait') ? overviewPortrait(V) : overviewLandscape(V);
+    }
+    document.getElementById('root').innerHTML =
+      topBar(V) +
+      '<div style="flex:1;min-height:0;position:relative;">'+body+'</div>' +
+      dialogOverlay(V) +
+      settingsOverlay();
+  }
+
+  /* =====================================================================
+     EVENT DELEGATION
+     ===================================================================== */
+  document.addEventListener('click', function(ev){
+    var t = ev.target.closest('[data-act]');
+    if(!t) return;
+    var act = t.getAttribute('data-act');
+    var i = act.indexOf(':'); var name = i<0?act:act.slice(0,i); var arg = i<0?'':act.slice(i+1);
+    switch(name){
+      case 'nav': setTab(arg); break;
+      case 'open': setTab(arg); break;
+      case 'toggle': toggleDevice(arg); break;
+      case 'toggle-light': toggleLight(arg); break;
+      case 'scene': arg==='away'?sceneAway():sceneSleep(); break;
+      case 'tyre': cycleTyre(); break;
+      case 'cal-view': state.calView=arg; state.calNav=0; render(); break;
+      case 'cal-prev': state.calNav--; render(); break;
+      case 'cal-next': state.calNav++; render(); break;
+      case 'dlg-map': openDialog({kind:'map', id:arg}); break;
+      case 'dlg-screen': openDialog({kind:'screen', id:arg}); break;
+      case 'dlg-cam': openDialog({kind:'cam', id:arg}); break;
+      case 'dlg-close': closeDialog(); break;
+      case 'upload': uploadPhoto(arg); break;
+      case 'fan-osc': state.fanOsc[arg]=!state.fanOsc[arg]; render(); break;
+      case 'car-btn': pressCarButton(arg); break;
+      case 'settings': state.showSettings=true; render(); break;
+      case 'settings-close': state.showSettings=false; render(); break;
+      case 'settings-save': {
+        var url=(document.getElementById('cfgUrl')||{}).value||''; var tok=(document.getElementById('cfgTok')||{}).value||'';
+        if(url){ HA.save(url.trim(), tok.trim()); state.showSettings=false; state.connError=''; if(HA.ws){ try{HA.ws.close();}catch(e){} } HA.retry=0; HA.connect(); render(); }
+        break; }
+      case 'settings-clear': {
+        HA.clear(); state.connected=false; if(HA.ws){ try{HA.ws.close();}catch(e){} HA.ws=null; }
+        state.on = Object.assign({}, MOCK_ON); state.ent={}; state.showSettings=false; render(); break; }
+      case 'stop': ev.stopPropagation(); break;
+    }
+  });
+  // fan speed slider (input event)
+  document.addEventListener('input', function(ev){
+    var sl = ev.target.closest('[data-speed]'); if(!sl) return;
+    state.fanSpeed[sl.getAttribute('data-speed')] = +sl.value; render();
+  });
+
+  /* =====================================================================
+     BOOT
+     ===================================================================== */
+  // keep clock fresh
+  setInterval(function(){ state.now=new Date(); render(); }, 30000);
+  // re-evaluate layout on rotation (unless overridden)
+  if(!layoutOverride){
+    window.matchMedia('(orientation: portrait)').addEventListener('change', function(e){ state.layout = e.matches?'portrait':'landscape'; render(); });
+  }
+  // refresh camera snapshots periodically when connected (entity_picture is signed & short-lived)
+  setInterval(function(){ if(state.connected){ var ids=[SENS.cam_front,SENS.cam_living,SENS.cam_office]; var any=false; ids.forEach(function(id){ if(state.ent[id]) any=true; }); if(any) render(); } }, 12000);
+
+  HA.load();
+  render();
+  if(HA.cfg) HA.connect();
+})();
+</script>
+</body>
+</html>
