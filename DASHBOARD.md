@@ -67,6 +67,10 @@ Once connected:
 - Scenes (Away / Sleep) issue the corresponding per-entity service calls.
 - Camera tiles render the real signed `entity_picture` snapshots, refreshed
   periodically.
+- Tapping a person/car in Who's Home opens a map dialog whose marker and
+  coordinates are derived from the entity's real `latitude`/`longitude`
+  attributes, placed relative to `zone.home` (falls back to mock offsets in
+  demo mode).
 - The calendar discovers every `calendar.*` entity and pulls events for the
   visible Month/Week/Day window from HA's REST calendar API
   (`/api/calendars/<entity_id>?start=&end=`), each calendar drawn in its own

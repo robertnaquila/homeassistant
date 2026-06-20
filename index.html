@@ -424,6 +424,23 @@
     return S(b);
   }
 
+  // ---- location helpers (real GPS → mini-map marker) ----
+  function homeCenter(){
+    var z=state.ent['zone.home'];
+    if(z && z.attributes && typeof z.attributes.latitude==='number') return { lat:z.attributes.latitude, lon:z.attributes.longitude };
+    return { lat:1.3404, lon:103.9540 };   // fallback matches the demo home coords
+  }
+  // Resolve an entity's GPS attributes into a marker offset (% from the home centre), distance, and coord text.
+  function geoFrom(eid, home){
+    var e=state.ent[eid]; if(!e||!e.attributes) return null;
+    var lat=e.attributes.latitude, lon=e.attributes.longitude;
+    if(typeof lat!=='number'||typeof lon!=='number') return null;
+    var north=(lat-home.lat)*111320, east=(lon-home.lon)*111320*Math.cos(home.lat*Math.PI/180);
+    function pct(m){ return Math.max(-46, Math.min(46, (m/1200)*42)); }   // ~1.2km reaches the map edge, then clamps
+    return { mx:pct(east), my:-pct(north), distM:Math.sqrt(north*north+east*east),
+      coords:Math.abs(lat).toFixed(4)+' '+(lat>=0?'N':'S')+', '+Math.abs(lon).toFixed(4)+' '+(lon>=0?'E':'W') };
+  }
+
   function getVals(){
     var d = state.now, on = state.on;
     var hr = d.getHours();
@@ -466,19 +483,24 @@
       {id:'fiona', eid:SENS.p_fiona, name:'Fiona', glyph:'F', home:fioHome, zone:fioHome?'Home':'Away', status:fioHome?'Home':'Away', phone:fioPhone, watch:'—', steps:fioSteps, dist:fioDist, sub:"iPhone 16 Pro · Stationary", mx:34, my:-26},
       {id:'byd', eid:SENS.car_loc, name:'BYD M6', glyph:'directions_car', car:true, home:bydHome, zone:bydHome?'Home':'Away', status:bydHome?'Parked · Home':'Driving', phone:val(SENS.batt,'57')+'%', watch:'—', steps:'—', dist:'0 m', sub:'L3 · Charger · '+(numv(SENS.odo,26589)).toLocaleString()+' km', mx:-22, my:30}
     ];
+    var home = homeCenter();
     var presence = peopleDefs.map(function(p){
       var col = p.home ? (p.car?C.green:C.accent) : 'rgba(255,255,255,.12)';
       var photo = photoOrPerson(p.eid, p.id);
+      var g = state.connected ? geoFrom(p.eid, home) : null;   // real GPS when connected; else mock offsets
+      var mx = g ? g.mx : p.mx, my = g ? g.my : p.my;
+      var dist = g ? (g.distM>=1000 ? (g.distM/1000).toFixed(1)+' km' : Math.round(g.distM)+' m') : p.dist;
+      var coords = g ? g.coords : (p.home?'1.3404 N, 103.9540 E':'1.3331 N, 103.9012 E');
       return { id:p.id, name:p.name, glyph:p.glyph, photo:photo, noPhoto:!photo,
         ringStyle: ringGlow(46,col,photo), ringStyleLg: ringGlow(56,col,photo),
         glyphStyle: p.car ? ms(22,p.home?C.green:C.faint,true) : S({font:"600 16px/1 'Space Grotesk'",color:p.home?'#bfe2ff':C.faint}),
         glyphStyleLg: p.car ? ms(26,p.home?C.green:C.faint,true) : S({font:"600 19px/1 'Space Grotesk'",color:p.home?'#bfe2ff':C.faint}),
         status:p.status, statusStyle:S({font:"500 10px/1 'JetBrains Mono',monospace",color:p.home?(p.car?'#7fe3c0':'#bfe2ff'):C.mute}),
-        detail: p.home ? (p.zone+' · phone '+p.phone) : (p.zone+' · '+p.dist+' away'),
+        detail: p.home ? (p.zone+' · phone '+p.phone) : (p.zone+' · '+dist+' away'),
         sub:p.sub, dotCol: p.home?(p.car?C.green:C.accent):C.amber,
-        _map:{ col:col, status: p.home?(p.car?'Parked at Home · locked':'At Home'):('Away · '+p.dist+' from home'),
-          markerPos:'left:'+(50+p.mx)+'%;top:'+(50+p.my)+'%', markerCol:p.home?(p.car?C.green:C.accent):C.amber,
-          coords:p.home?'1.3404 N, 103.9540 E':'1.3331 N, 103.9012 E',
+        _map:{ col:col, status: p.home?(p.car?'Parked at Home · locked':'At Home'):('Away · '+dist+' from home'),
+          markerPos:'left:'+(50+mx)+'%;top:'+(50+my)+'%', markerCol:p.home?(p.car?C.green:C.accent):C.amber,
+          coords:coords,
           stats: p.car ? [ {label:'Status',value:'Locked',col:C.green},{label:'Battery',value:val(SENS.batt,'57')+'%',col:C.accent},{label:'Parking',value:val(SENS.park_floor,'L3'),col:'#eef3f9'} ]
                        : [ {label:'Zone',value:p.zone,col:p.home?C.green:C.amber},{label:'Phone',value:p.phone,col:'#eef3f9'},{label:p.home?'Watch':'Steps',value:p.home?p.watch:p.steps,col:'#eef3f9'} ] } };
     });
