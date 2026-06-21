@@ -1234,14 +1234,16 @@
       case 'stop': ev.stopPropagation(); break;
     }
   });
-  // fan speed slider: live visual feedback while dragging, HA service call on release
+  // fan speed slider: the native thumb tracks the drag; we only sync state here
+  // (re-rendering on every 'input' would rebuild the DOM and kill the drag).
   document.addEventListener('input', function(ev){
     var sl = ev.target.closest('[data-speed]'); if(!sl) return;
-    state.fanSpeed[sl.getAttribute('data-speed')] = +sl.value; render();
+    state.fanSpeed[sl.getAttribute('data-speed')] = +sl.value;
   });
+  // on release: commit the value (HA service call) and re-render to reflect it
   document.addEventListener('change', function(ev){
     var sl = ev.target.closest('[data-speed]'); if(!sl) return;
-    setFanSpeed(sl.getAttribute('data-speed'), +sl.value);
+    setFanSpeed(sl.getAttribute('data-speed'), +sl.value); render();
   });
 
   /* =====================================================================
