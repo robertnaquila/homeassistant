@@ -1006,18 +1006,26 @@
       var items = g.items.map(function(l){ return '<div data-act="'+l.act+'" style="'+l.style+'"><span style="'+l.iconStyle+'">lightbulb</span><div style="flex:1;min-width:0;"><div style="font:600 12px/1 \'Space Grotesk\';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+l.name+'</div></div></div>'; }).join('');
       return '<div><div style="font:600 12px/1 \'Space Grotesk\';color:#8b97a8;margin-bottom:6px;">'+g.area+'</div><div style="display:grid;grid-template-columns:repeat('+lightCols+',1fr);gap:7px;">'+items+'</div></div>';
     }).join('');
-    var rightFlex = portrait ? '1.15' : '1';
-    var rightOverflow = portrait ? 'hidden' : 'auto';
-    return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;gap:18px;overflow:hidden;">'+
-      '<div style="flex:2;display:flex;flex-direction:column;gap:11px;min-width:0;overflow:hidden;">'+
+    var acCols = portrait?2:4, fanCols = portrait?3:5, airCols = portrait?1:3;
+    var rootStyle = portrait
+      ? 'position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;overflow-x:hidden;'
+      : 'position:absolute;inset:0;padding:16px 20px;display:flex;gap:18px;overflow:hidden;';
+    var leftStyle = portrait
+      ? 'display:flex;flex-direction:column;gap:11px;min-width:0;'
+      : 'flex:2;display:flex;flex-direction:column;gap:11px;min-width:0;overflow:hidden;';
+    var rightStyle = portrait
+      ? 'display:flex;flex-direction:column;gap:9px;min-width:0;border-top:1px solid rgba(255,255,255,.07);padding-top:14px;'
+      : 'flex:1;display:flex;flex-direction:column;gap:8px;min-width:0;overflow:auto;border-left:1px solid rgba(255,255,255,.07);padding-left:18px;';
+    return '<div style="'+rootStyle+'">'+
+      '<div style="'+leftStyle+'">'+
         '<div style="display:flex;align-items:center;gap:14px;"><div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Air conditioning</div><div style="display:flex;align-items:center;gap:8px;margin-left:auto;background:rgba(0,209,139,.08);border:1px solid rgba(0,209,139,.25);border-radius:10px;padding:7px 11px;"><span class="ms" style="font-size:16px;color:#00d18b;">eco</span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;">Outdoor AQI '+V.aqi_out+' · Good · '+V.temp_out+'°C</span></div></div>'+
-        '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">'+zones+'</div>'+
+        '<div style="display:grid;grid-template-columns:repeat('+acCols+',1fr);gap:12px;">'+zones+'</div>'+
         '<div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;margin-top:2px;">Fans &amp; purifiers</div>'+
-        '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;">'+fans+'</div>'+
+        '<div style="display:grid;grid-template-columns:repeat('+fanCols+',1fr);gap:12px;">'+fans+'</div>'+
         '<div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;margin-top:2px;">Indoor air quality</div>'+
-        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">'+air+'</div>'+
+        '<div style="display:grid;grid-template-columns:repeat('+airCols+',1fr);gap:12px;">'+air+'</div>'+
       '</div>'+
-      '<div style="flex:'+rightFlex+';display:flex;flex-direction:column;gap:'+(portrait?'9':'8')+'px;min-width:0;overflow:'+rightOverflow+';border-left:1px solid rgba(255,255,255,.07);padding-left:18px;">'+
+      '<div style="'+rightStyle+'">'+
         '<div style="display:flex;align-items:center;gap:10px;"><span class="ms" style="font-size:18px;color:#00b3ff;font-variation-settings:\'FILL\' 1;">lightbulb</span><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Lighting · '+V.lightsOn+' of '+V.lightsTotal+' on</span></div>'+
         lights+
       '</div>'+
