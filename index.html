@@ -473,7 +473,7 @@
   }
   function ringGlow(size, col, photo){
     var b = { width:size+'px', height:size+'px', borderRadius:'50%', flex:'none', border:'2px solid '+col, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' };
-    if(photo){ b.backgroundImage='url("'+photo+'")'; b.backgroundSize='cover'; b.backgroundPosition='center'; b.backgroundColor='#0e151d'; }
+    if(photo){ b.backgroundImage="url('"+photo+"')"; b.backgroundSize='cover'; b.backgroundPosition='center'; b.backgroundColor='#0e151d'; }
     else b.background='linear-gradient(150deg,#1b2733,#0e151d)';
     return S(b);
   }
@@ -588,7 +588,7 @@
       var timerEnd=val(s.timer,'0');
       var active = device!=='none' && timerEnd && timerEnd!=='0';
       var week = k.week.slice(); week[5]={ipad:ipad,tv:tv,sw:sw};
-      var photo = state.photos[k.id]||'';
+      var photo = state.photos[k.id] || photoOrPerson('', k.id);   // embedded HA_PHOTOS for zayne/zed
       var dLabel = device==='none' ? 'No device active' : ('Using '+device);
       return { id:k.id, name:k.name, glyph:k.glyph, photo:photo, noPhoto:!photo,
         ringStyle: ringGlow(66, active?C.accent:'rgba(255,255,255,.12)', photo),
@@ -898,7 +898,7 @@
     }).join('');
     return '<div style="flex:1;background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:14px;min-height:0;display:flex;flex-direction:column;">'+
       '<div style="display:flex;align-items:center;justify-content:space-between;flex:none;"><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Who\'s home</span><span data-act="nav:family" style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#00b3ff;cursor:pointer;">ALL →</span></div>'+
-      '<div style="flex:1;display:flex;align-items:center;justify-content:space-around;gap:14px;flex-wrap:wrap;padding:8px 0;">'+people+kidsAv+'</div>'+
+      '<div style="flex:1;display:flex;align-items:flex-start;justify-content:space-around;gap:14px;flex-wrap:wrap;padding:8px 0;">'+people+kidsAv+'</div>'+
     '</div>';
   }
 
@@ -974,7 +974,7 @@
     '</div>';
   }
   function overviewPortrait(V){
-    return '<div style="position:absolute;inset:0;padding:14px 18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;overflow-x:hidden;">'+
+    return '<div data-scroll="overview" style="position:absolute;inset:0;padding:14px 18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;overflow-x:hidden;">'+
       '<div style="display:flex;flex-direction:column;gap:14px;flex:none;"><div style="flex:none;display:flex;flex-direction:column;gap:12px;min-width:0;">'+whosHome(V,{portrait:true})+'</div></div>'+
       '<div style="display:flex;flex-wrap:wrap;gap:12px;flex:none;">'+climateTile(V)+lightsTile(V)+'</div>'+
       '<div style="display:flex;flex-direction:column;gap:14px;flex:none;">'+cameraStrip(V,true)+calendarCard(V,true)+'</div>'+
@@ -1016,7 +1016,7 @@
     var rightStyle = portrait
       ? 'display:flex;flex-direction:column;gap:9px;min-width:0;border-top:1px solid rgba(255,255,255,.07);padding-top:14px;'
       : 'flex:1;display:flex;flex-direction:column;gap:8px;min-width:0;overflow:auto;border-left:1px solid rgba(255,255,255,.07);padding-left:18px;';
-    return '<div style="'+rootStyle+'">'+
+    return '<div data-scroll="devices" style="'+rootStyle+'">'+
       '<div style="'+leftStyle+'">'+
         '<div style="display:flex;align-items:center;gap:14px;"><div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Air conditioning</div><div style="display:flex;align-items:center;gap:8px;margin-left:auto;background:rgba(0,209,139,.08);border:1px solid rgba(0,209,139,.25);border-radius:10px;padding:7px 11px;"><span class="ms" style="font-size:16px;color:#00d18b;">eco</span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;">Outdoor AQI '+V.aqi_out+' · Good · '+V.temp_out+'°C</span></div></div>'+
         '<div style="display:grid;grid-template-columns:repeat('+acCols+',1fr);gap:12px;">'+zones+'</div>'+
@@ -1025,7 +1025,7 @@
         '<div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;margin-top:2px;">Indoor air quality</div>'+
         '<div style="display:grid;grid-template-columns:repeat('+airCols+',1fr);gap:12px;">'+air+'</div>'+
       '</div>'+
-      '<div style="'+rightStyle+'">'+
+      '<div data-scroll="devices-lights" style="'+rightStyle+'">'+
         '<div style="display:flex;align-items:center;gap:10px;"><span class="ms" style="font-size:18px;color:#00b3ff;font-variation-settings:\'FILL\' 1;">lightbulb</span><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Lighting · '+V.lightsOn+' of '+V.lightsTotal+' on</span></div>'+
         lights+
       '</div>'+
@@ -1045,7 +1045,7 @@
     var gauges = V.nas.gauges.map(function(g){ return '<div style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;display:flex;flex-direction:column;align-items:center;"><div style="'+g.ringStyle+'"><div style="width:78px;height:78px;border-radius:50%;background:#0c0f15;display:flex;flex-direction:column;align-items:center;justify-content:center;"><span style="font:700 22px/1 \'Space Grotesk\';color:'+g.col+';">'+g.value+'</span><span style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:3px;">'+g.unit+'</span></div></div><div style="font:600 12px/1 \'Space Grotesk\';color:#cdd7e2;margin-top:13px;">'+g.label+'</div></div>'; }).join('');
     var hdds = V.nas.hdds.map(function(h){ return '<div style="flex:1;background:rgba(255,255,255,.02);border:1px solid rgba(0,209,139,.18);border-radius:11px;padding:12px;text-align:center;"><span class="ms" style="font-size:20px;color:#00d18b;">hard_drive</span><div style="font:700 16px/1 \'Space Grotesk\';margin-top:9px;">'+h.temp+'°</div><div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:5px;">'+h.name+'</div></div>'; }).join('');
     var gateChip = V.gateOpen ? '<div style="display:flex;align-items:center;gap:7px;background:rgba(255,93,93,.1);border:1px solid rgba(255,93,93,.3);border-radius:10px;padding:8px 12px;"><span class="ms" style="font-size:16px;color:#ff7a7a;font-variation-settings:\'FILL\' 1;">sensor_door</span><span style="font:600 11px/1 \'Space Grotesk\';color:#ffb3b3;">Gate OPEN</span></div>' : '';
-    return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:14px;overflow:auto;">'+
+    return '<div data-scroll="security" style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:14px;overflow:auto;">'+
       '<div style="display:flex;align-items:center;gap:14px;"><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Synology Surveillance · 3 cameras recording</span><div style="margin-left:auto;display:flex;gap:10px;">'+gateChip+'<div style="display:flex;align-items:center;gap:7px;background:rgba(0,179,255,.1);border:1px solid rgba(0,179,255,.3);border-radius:10px;padding:8px 12px;"><span class="ms" style="font-size:16px;color:#6fb6ff;font-variation-settings:\'FILL\' 1;">shield</span><span style="font:600 11px/1 \'Space Grotesk\';color:#bfe2ff;">'+(V.armed?'Armed away':'Disarmed')+'</span></div></div></div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;height:240px;flex:none;">'+cams+'</div>'+
       '<div style="display:flex;align-items:center;gap:12px;margin-top:6px;padding-top:14px;border-top:1px solid rgba(255,255,255,.06);"><span class="ms" style="font-size:20px;color:#00d18b;">dns</span><span style="font:600 14px/1 \'Space Grotesk\';">Synology NAS · DS1517</span><span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#7fe3c0;background:rgba(0,209,139,.1);border:1px solid rgba(0,209,139,.25);border-radius:8px;padding:5px 9px;">Security: Safe · DSM up-to-date</span><span style="margin-left:auto;font:500 11px/1 \'JetBrains Mono\',monospace;color:#6b7787;">Uptime '+V.nas.uptime+'</span></div>'+
@@ -1069,7 +1069,7 @@
         '<svg viewBox="0 0 300 100" preserveAspectRatio="none" style="width:100%;height:70px;display:block;overflow:visible;"><polyline points="'+k.lines.ipadLine+'" fill="none" stroke="#00b3ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline><polyline points="'+k.lines.tvLine+'" fill="none" stroke="#b07cff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline><polyline points="'+k.lines.swLine+'" fill="none" stroke="#00d18b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline></svg>'+
       '</div>';
     }).join('');
-    return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:14px;overflow:auto;">'+
+    return '<div data-scroll="family" style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:14px;overflow:auto;">'+
       '<div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">People &amp; presence · tap for location</div>'+
       '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">'+people+'</div>'+
       '<div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;margin-top:6px;">Kids · screen time · tap for breakdown</div>'+
@@ -1197,6 +1197,7 @@
   /* =====================================================================
      RENDER
      ===================================================================== */
+  var scrollPos = {};   // data-scroll key -> last scrollTop (preserved across re-renders)
   function render(){
     var V = getVals();
     var body;
@@ -1208,12 +1209,16 @@
       case 'carpark': body = ''; break;       // rendered by the persistent frame layer
       default: body = (state.layout==='portrait') ? overviewPortrait(V) : overviewLandscape(V);
     }
+    // remember scroll position(s) before the DOM is rebuilt, so periodic/state
+    // re-renders don't snap the page back to the top
+    document.querySelectorAll('[data-scroll]').forEach(function(el){ scrollPos[el.getAttribute('data-scroll')] = el.scrollTop; });
     document.getElementById('root').innerHTML =
       topBar(V) +
       '<div style="flex:1;min-height:0;position:relative;">'+body+'</div>' +
       dialogOverlay(V) +
       calCfgOverlay(V) +
       settingsOverlay();
+    document.querySelectorAll('[data-scroll]').forEach(function(el){ var k=el.getAttribute('data-scroll'); if(scrollPos[k]) el.scrollTop = scrollPos[k]; });
     syncFrames(V);
   }
 
