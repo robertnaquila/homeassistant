@@ -88,6 +88,7 @@
     // misc
     salt_lamp:                 { id:'switch.salt_lamp',                domain:'switch' },
     kids_purifier:             { id:'switch.kids_purifier',            domain:'switch' },
+    heater:                    { id:'switch.heater_switch_1',          domain:'switch' },
     frame_tv:                  { id:'media_player.robert_s_frame_tv_3',domain:'media_player' },
     car_climate:               { id:'switch.byd_a_c_on',               domain:'switch' }
   };
@@ -149,7 +150,7 @@
     kids_room_light:false, hall_light:false, kids_toilet_light:false, kids_toilet_bright_light:false,
     master_fan:true, office_fan:true, kids_fan:false, ceiling_fan:true, dining_fan:false,
     ac_master:true, ac_kids:true, ac_office:true, ac_living:false,
-    salt_lamp:true, kids_purifier:true, frame_tv:false, car_climate:false
+    salt_lamp:true, kids_purifier:true, heater:false, frame_tv:false, car_climate:false
   };
 
   /* =====================================================================
@@ -683,13 +684,13 @@
       {area:'Office', items:[{key:'office_light', name:'Office'}]},
       {area:'Master Bedroom', items:[{key:'wardrobe_light', name:'Wardrobe'},{key:'master_bedroom_light', name:'Bedroom'},{key:'master_toilet_light', name:'Toilet'},{key:'step_light', name:'Step Light'}]},
       {area:'Kitchen', items:[{key:'kitchen_light', name:'Kitchen'},{key:'dining_light', name:'Dining'},{key:'door_light', name:'Door'},{key:'service_yard_light', name:'Service Yard'}]},
-      {area:'Kids Room', items:[{key:'kids_room_light', name:'Kids Room'},{key:'hall_light', name:'Hallway'},{key:'kids_toilet_light', name:'Kids Toilet'}]}
+      {area:'Kids Room', items:[{key:'kids_room_light', name:'Kids Room'},{key:'hall_light', name:'Hallway'},{key:'kids_toilet_light', name:'Kids Toilet'},{key:'heater', name:'Heater', sw:true, icon:'mode_heat'}]}
     ];
     var lightsOn=0, lightsTotal=0;
     var lightAreas = lDef.map(function(g){
       return { area:g.area, items:g.items.map(function(l){
-        var o=on[l.key]; lightsTotal++; if(o) lightsOn++;
-        return { name:l.name, act:'toggle-light:'+l.key,
+        var o=on[l.key]; if(!l.sw){ lightsTotal++; if(o) lightsOn++; }   // heater is a switch, not counted as a light
+        return { name:l.name, icon:l.icon||'lightbulb', act:(l.sw?'toggle:':'toggle-light:')+l.key,
           style:S({ display:'flex',alignItems:'center',gap:'9px',padding:'6px 10px',borderRadius:'10px',cursor:'pointer',transition:'all .2s', background:o?'linear-gradient(160deg,rgba(0,179,255,.13),rgba(0,179,255,.03))':'rgba(255,255,255,.02)', border:o?'1px solid rgba(0,179,255,.33)':'1px solid rgba(255,255,255,.06)' }),
           iconStyle: ms(22, o?C.accent:C.faint, o) };
       }) };
@@ -1003,7 +1004,7 @@
     var air = V.airRooms.map(function(r){ return '<div style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:13px;display:flex;align-items:center;gap:13px;"><div style="'+r.aqiStyle+'">'+r.aqi+'</div><div><div style="font:600 13px/1 \'Space Grotesk\';">'+r.room+'</div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#6b7787;margin-top:5px;">AQI · '+r.label+'</div><div style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:4px;">'+esc(r.meta)+'</div></div></div>'; }).join('');
     var lightCols = portrait ? 1 : 2;
     var lights = V.lightAreas.map(function(g){
-      var items = g.items.map(function(l){ return '<div data-act="'+l.act+'" style="'+l.style+'"><span style="'+l.iconStyle+'">lightbulb</span><div style="flex:1;min-width:0;"><div style="font:600 12px/1 \'Space Grotesk\';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+l.name+'</div></div></div>'; }).join('');
+      var items = g.items.map(function(l){ return '<div data-act="'+l.act+'" style="'+l.style+'"><span style="'+l.iconStyle+'">'+l.icon+'</span><div style="flex:1;min-width:0;"><div style="font:600 12px/1 \'Space Grotesk\';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+l.name+'</div></div></div>'; }).join('');
       return '<div><div style="font:600 12px/1 \'Space Grotesk\';color:#8b97a8;margin-bottom:6px;">'+g.area+'</div><div style="display:grid;grid-template-columns:repeat('+lightCols+',1fr);gap:7px;">'+items+'</div></div>';
     }).join('');
     var acCols = portrait?2:4, fanCols = portrait?3:5, airCols = portrait?1:3;
