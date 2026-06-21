@@ -473,7 +473,7 @@
   }
   function ringGlow(size, col, photo){
     var b = { width:size+'px', height:size+'px', borderRadius:'50%', flex:'none', border:'2px solid '+col, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' };
-    if(photo){ b.backgroundImage='url("'+photo+'")'; b.backgroundSize='cover'; b.backgroundPosition='center'; b.backgroundColor='#0e151d'; }
+    if(photo){ b.backgroundImage="url('"+photo+"')"; b.backgroundSize='cover'; b.backgroundPosition='center'; b.backgroundColor='#0e151d'; }
     else b.background='linear-gradient(150deg,#1b2733,#0e151d)';
     return S(b);
   }
@@ -588,7 +588,7 @@
       var timerEnd=val(s.timer,'0');
       var active = device!=='none' && timerEnd && timerEnd!=='0';
       var week = k.week.slice(); week[5]={ipad:ipad,tv:tv,sw:sw};
-      var photo = state.photos[k.id]||'';
+      var photo = state.photos[k.id] || photoOrPerson('', k.id);   // embedded HA_PHOTOS for zayne/zed
       var dLabel = device==='none' ? 'No device active' : ('Using '+device);
       return { id:k.id, name:k.name, glyph:k.glyph, photo:photo, noPhoto:!photo,
         ringStyle: ringGlow(66, active?C.accent:'rgba(255,255,255,.12)', photo),
