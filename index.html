@@ -507,8 +507,11 @@
     });
 
     // ---- presence (people + car) ----
-    var robHome = val(SENS.p_robert,'home')==='home';
-    var fioHome = val(SENS.p_fiona,'not_home')==='home';
+    function zoneLbl(s){ if(!s||s==='home') return 'Home'; if(s==='not_home'||s==='away') return 'Away'; return s.charAt(0).toUpperCase()+s.slice(1).replace(/_/g,' '); }
+    var robState = val(SENS.p_robert,'home'), fioState = val(SENS.p_fiona,'not_home');
+    var robHome = robState==='home';
+    var fioHome = fioState==='home';
+    var robZone = zoneLbl(robState), fioZone = zoneLbl(fioState);
     var bydHome = val(SENS.car_loc,'home')==='home';
     var robPhone = val(SENS.rob_phone,'40')+'%', robWatch = val(SENS.rob_watch,'80')+'%';
     var fioPhone = val(SENS.fio_phone,'90')+'%';
@@ -516,8 +519,8 @@
     var fioDistM = numv(SENS.fio_dist, 1740);
     var fioDist = fioDistM>=1000 ? (fioDistM/1000).toFixed(1)+' km' : Math.round(fioDistM)+' m';
     var peopleDefs = [
-      {id:'robert', eid:SENS.p_robert, name:'Robert', glyph:'R', home:robHome, zone:robHome?'Home':'Away', status:robHome?'Home':'Away', phone:robPhone, watch:robWatch, steps:'—', dist:'0 m', sub:'iPhone 16 · Authorized always', mx:0, my:0},
-      {id:'fiona', eid:SENS.p_fiona, name:'Fiona', glyph:'F', home:fioHome, zone:fioHome?'Home':'Away', status:fioHome?'Home':'Away', phone:fioPhone, watch:'—', steps:fioSteps, dist:fioDist, sub:"iPhone 16 Pro · Stationary", mx:34, my:-26},
+      {id:'robert', eid:SENS.p_robert, name:'Robert', glyph:'R', home:robHome, zone:robZone, status:robZone, phone:robPhone, watch:robWatch, steps:'—', dist:'0 m', sub:'iPhone 16 · Authorized always', mx:0, my:0},
+      {id:'fiona', eid:SENS.p_fiona, name:'Fiona', glyph:'F', home:fioHome, zone:fioZone, status:fioZone, phone:fioPhone, watch:'—', steps:fioSteps, dist:fioDist, sub:"iPhone 16 Pro · Stationary", mx:34, my:-26},
       {id:'byd', eid:SENS.car_loc, name:'BYD M6', glyph:'directions_car', car:true, home:bydHome, zone:bydHome?'Home':'Away', status:bydHome?'Parked · Home':'Driving', phone:val(SENS.batt,'57')+'%', watch:'—', steps:'—', dist:'0 m', sub:val(SENS.park_floor,'L3')+' · '+val(SENS.park_remarks,'Charger')+' · '+(numv(SENS.odo,26589)).toLocaleString()+' km', mx:-22, my:30}
     ];
     var home = homeCenter();
@@ -529,8 +532,8 @@
       var dist = g ? (g.distM>=1000 ? (g.distM/1000).toFixed(1)+' km' : Math.round(g.distM)+' m') : p.dist;
       var coords = g ? g.coords : (p.home?'1.3404 N, 103.9540 E':'1.3331 N, 103.9012 E');
       return { id:p.id, name:p.name, glyph:p.glyph, photo:photo, noPhoto:!photo,
-        ringStyle: ringGlow(46,col,photo), ringStyleLg: ringGlow(56,col,photo),
-        glyphStyle: p.car ? ms(22,p.home?C.green:C.faint,true) : S({font:"600 16px/1 'Space Grotesk'",color:p.home?'#bfe2ff':C.faint}),
+        ringStyle: ringGlow(66,col,photo), ringStyleLg: ringGlow(56,col,photo),
+        glyphStyle: p.car ? ms(26,p.home?C.green:C.faint,true) : S({font:"600 24px/1 'Space Grotesk'",color:p.home?'#bfe2ff':C.faint}),
         glyphStyleLg: p.car ? ms(26,p.home?C.green:C.faint,true) : S({font:"600 19px/1 'Space Grotesk'",color:p.home?'#bfe2ff':C.faint}),
         status:p.status, statusStyle:S({font:"500 10px/1 'JetBrains Mono',monospace",color:p.home?(p.car?'#7fe3c0':'#bfe2ff'):C.mute}),
         detail: p.home ? (p.zone+' · phone '+p.phone) : (p.zone+' · '+dist+' away'),
@@ -571,9 +574,10 @@
       var photo = state.photos[k.id]||'';
       var dLabel = device==='none' ? 'No device active' : ('Using '+device);
       return { id:k.id, name:k.name, glyph:k.glyph, photo:photo, noPhoto:!photo,
-        ringStyle: ringGlow(46, active?C.accent:'rgba(255,255,255,.12)', photo),
+        ringStyle: ringGlow(66, active?C.accent:'rgba(255,255,255,.12)', photo),
         ringStyleLg: ringGlow(50, active?C.accent:'rgba(255,255,255,.14)', photo),
-        statusLabel: active ? (left+'m left') : (device==='none'?'No active timer':points+' pts'),
+        active: active,
+        statusLabel: active ? (left+' min left') : 'No active timer',
         badgeStyle: active ? S({font:"600 10px/1 'JetBrains Mono',monospace",color:'#bfe2ff',background:'rgba(0,179,255,.12)',border:'1px solid rgba(0,179,255,.3)',borderRadius:'7px',padding:'5px 8px'})
                            : S({font:"600 10px/1 'JetBrains Mono',monospace",color:C.amber,background:'rgba(255,168,76,.1)',border:'1px solid rgba(255,168,76,.3)',borderRadius:'7px',padding:'5px 8px'}),
         deviceLabel:dLabel, points:points, used:used, left:left,
@@ -856,32 +860,24 @@
 
   function whosHome(V, opts){
     opts = opts||{};
-    var people = V.presence.map(function(p){
-      return '<div data-act="dlg-map:'+p.id+'" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;position:relative;">'+
+    var people = V.presence.filter(function(p){ return p.id!=='byd'; }).map(function(p){
+      return '<div data-act="dlg-map:'+p.id+'" style="display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;position:relative;">'+
         '<div style="'+p.ringStyle+'">'+(p.noPhoto?'<span style="'+p.glyphStyle+'">'+p.glyph+'</span>':'')+'</div>'+
+        '<span style="font:600 12px/1 \'Space Grotesk\';color:#cdd7e2;">'+esc(p.name)+'</span>'+
         '<span style="'+p.statusStyle+'">'+esc(p.status)+'</span>'+
       '</div>';
     }).join('');
     var kidsAv = V.kids.map(function(k){
       return '<div data-act="dlg-screen:'+k.id+'" style="display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;position:relative;">'+
-        '<div style="'+k.ringStyle+'">'+(k.noPhoto?'<span style="font:600 15px/1 \'Space Grotesk\';color:#9fb0c4;">'+k.glyph+'</span>':'')+'</div>'+
+        '<div style="'+k.ringStyle+'">'+(k.noPhoto?'<span style="font:600 24px/1 \'Space Grotesk\';color:#9fb0c4;">'+k.glyph+'</span>':'')+'</div>'+
+        '<span style="font:600 12px/1 \'Space Grotesk\';color:#cdd7e2;">'+esc(k.name)+'</span>'+
+        '<span style="font:500 10px/1 \'JetBrains Mono\',monospace;color:'+(k.active?'#bfe2ff':C.mute)+';white-space:nowrap;">'+esc(k.statusLabel)+'</span>'+
         '<span style="font:600 9px/1 \'JetBrains Mono\',monospace;color:#7fb4d8;background:rgba(0,179,255,.1);border:1px solid rgba(0,179,255,.28);border-radius:6px;padding:3px 7px;white-space:nowrap;">'+esc(k.points)+' pts left</span>'+
       '</div>';
     }).join('');
-    var kidCards = V.kids.map(function(k){
-      var devs = k.devs.map(function(dv){ return '<div style="display:flex;align-items:center;gap:3px;"><span style="'+dv.iconStyle+'">'+dv.icon+'</span><span style="font:600 9px/1 \'JetBrains Mono\',monospace;color:#cdd7e2;">'+dv.min+'m</span></div>'; }).join('');
-      var act = opts.portrait ? ' data-act="nav:screentime"' : '';
-      var cur = opts.portrait ? 'cursor:pointer;' : '';
-      return '<div'+act+' style="flex:1;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:11px;padding:9px 10px;min-width:0;'+cur+'">'+
-        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"><span style="font:600 11px/1 \'Space Grotesk\';">'+k.name+'</span><span style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#8b97a8;white-space:nowrap;">'+esc(k.statusLabel)+'</span></div>'+
-        '<svg viewBox="0 0 300 100" preserveAspectRatio="none" style="width:100%;height:44px;display:block;"><polyline points="'+k.lines.ipadLine+'" fill="none" stroke="#00b3ff" stroke-width="3"></polyline><polyline points="'+k.lines.tvLine+'" fill="none" stroke="#b07cff" stroke-width="3"></polyline><polyline points="'+k.lines.swLine+'" fill="none" stroke="#00d18b" stroke-width="3"></polyline></svg>'+
-        '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:7px;">'+devs+'</div>'+
-      '</div>';
-    }).join('');
-    return '<div style="flex:1;background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:14px;min-height:0;">'+
-      '<div style="display:flex;align-items:center;justify-content:space-between;"><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Who\'s home</span><span data-act="nav:family" style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#00b3ff;cursor:pointer;">ALL →</span></div>'+
-      '<div style="display:flex;gap:12px;margin-top:13px;">'+people+kidsAv+'</div>'+
-      '<div style="display:flex;gap:10px;margin-top:12px;">'+kidCards+'</div>'+
+    return '<div style="flex:1;background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:14px;min-height:0;display:flex;flex-direction:column;">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;flex:none;"><span style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">Who\'s home</span><span data-act="nav:family" style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#00b3ff;cursor:pointer;">ALL →</span></div>'+
+      '<div style="flex:1;display:flex;align-items:center;justify-content:space-around;gap:14px;flex-wrap:wrap;padding:8px 0;">'+people+kidsAv+'</div>'+
     '</div>';
   }
 
@@ -1038,7 +1034,11 @@
     var people = V.presence.map(function(p){ return '<div data-act="dlg-map:'+p.id+'" style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;display:flex;align-items:center;gap:14px;cursor:pointer;position:relative;"><div style="'+p.ringStyleLg+'">'+(p.noPhoto?'<span style="'+p.glyphStyleLg+'">'+p.glyph+'</span>':'')+'</div><div style="flex:1;"><div style="font:600 17px/1 \'Space Grotesk\';">'+p.name+'</div><div style="display:flex;align-items:center;gap:6px;margin-top:8px;"><span style="width:7px;height:7px;border-radius:50%;background:'+p.dotCol+';"></span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#8b97a8;">'+esc(p.detail)+'</span></div><div style="font:500 10px/1 \'JetBrains Mono\',monospace;color:#566;margin-top:6px;">'+esc(p.sub)+'</div></div></div>'; }).join('');
     var kids = V.kids.map(function(k){
       var bars = k.bars.map(function(b){ return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:7px;justify-content:flex-end;height:100%;"><span style="font:600 11px/1 \'JetBrains Mono\',monospace;color:#cdd7e2;">'+b.min+'m</span><div style="'+b.barStyle+'"></div><span style="font:500 9px/1 \'JetBrains Mono\',monospace;color:#6b7787;">'+b.label+'</span></div>'; }).join('');
-      return '<div data-act="dlg-screen:'+k.id+'" style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;cursor:pointer;"><div style="display:flex;align-items:center;gap:13px;"><div style="'+k.ringStyleLg+'">'+(k.noPhoto?'<span style="font:600 19px/1 \'Space Grotesk\';color:#9fb0c4;">'+k.glyph+'</span>':'')+'</div><div style="flex:1;"><div style="font:600 17px/1 \'Space Grotesk\';">'+k.name+'</div><div style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#8b97a8;margin-top:7px;">'+esc(k.deviceLabel)+' · '+k.points+' pts</div></div><span style="'+k.badgeStyle+'">'+esc(k.statusLabel)+'</span></div><div style="display:flex;gap:10px;margin-top:16px;align-items:flex-end;height:90px;">'+bars+'</div></div>';
+      return '<div data-act="dlg-screen:'+k.id+'" style="background:#0c0f15;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px;cursor:pointer;"><div style="display:flex;align-items:center;gap:13px;"><div style="'+k.ringStyleLg+'">'+(k.noPhoto?'<span style="font:600 19px/1 \'Space Grotesk\';color:#9fb0c4;">'+k.glyph+'</span>':'')+'</div><div style="flex:1;"><div style="font:600 17px/1 \'Space Grotesk\';">'+k.name+'</div><div style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#8b97a8;margin-top:7px;">'+esc(k.deviceLabel)+' · '+k.points+' pts</div></div><span style="'+k.badgeStyle+'">'+esc(k.statusLabel)+'</span></div>'+
+        '<div style="display:flex;gap:10px;margin-top:16px;align-items:flex-end;height:90px;">'+bars+'</div>'+
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;margin-bottom:8px;"><span style="font:600 9px/1 \'JetBrains Mono\',monospace;letter-spacing:.08em;text-transform:uppercase;color:#5a6473;">This week</span><div style="display:flex;align-items:center;gap:10px;"><span style="display:flex;align-items:center;gap:4px;font:500 9px/1 \'JetBrains Mono\',monospace;color:#8b97a8;"><span style="width:9px;height:3px;border-radius:2px;background:#00b3ff;"></span>iPad</span><span style="display:flex;align-items:center;gap:4px;font:500 9px/1 \'JetBrains Mono\',monospace;color:#8b97a8;"><span style="width:9px;height:3px;border-radius:2px;background:#b07cff;"></span>TV</span><span style="display:flex;align-items:center;gap:4px;font:500 9px/1 \'JetBrains Mono\',monospace;color:#8b97a8;"><span style="width:9px;height:3px;border-radius:2px;background:#00d18b;"></span>Switch</span></div></div>'+
+        '<svg viewBox="0 0 300 100" preserveAspectRatio="none" style="width:100%;height:70px;display:block;overflow:visible;"><polyline points="'+k.lines.ipadLine+'" fill="none" stroke="#00b3ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline><polyline points="'+k.lines.tvLine+'" fill="none" stroke="#b07cff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline><polyline points="'+k.lines.swLine+'" fill="none" stroke="#00d18b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline></svg>'+
+      '</div>';
     }).join('');
     return '<div style="position:absolute;inset:0;padding:16px 20px;display:flex;flex-direction:column;gap:14px;overflow:auto;">'+
       '<div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.12em;text-transform:uppercase;color:#5a6473;">People &amp; presence · tap for location</div>'+
