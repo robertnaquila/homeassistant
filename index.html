@@ -227,6 +227,8 @@
         // fetch all states, then subscribe to changes
         var gid = this.send({ type:'get_states' });
         this.pending[gid] = function(res){ (res||[]).forEach(function(e){ state.ent[e.entity_id]=e; }); syncOn(); CAL.fetchKey=''; CAL.refresh(); render(); };
+        var uid = this.send({ type:'auth/current_user' });   // identify the logged-in account holder
+        this.pending[uid] = function(res){ if(res){ state.haUser={ id:res.id, name:res.name }; render(); } };
         this.send({ type:'subscribe_events', event_type:'state_changed' });
         render();
         return;
@@ -458,6 +460,16 @@
     var pic = attr(id,'entity_picture',null);
     if(pic && HA.baseUrl) return HA.baseUrl + pic;
     return '';
+  }
+  // which known profile is the logged-in HA account holder? match person.user_id, then name
+  function accountKey(){
+    if(!state.connected || !state.haUser) return 'robert';     // default / demo
+    var u = state.haUser, persons = { robert:SENS.p_robert, fiona:SENS.p_fiona };
+    for(var k in persons){ var uid=attr(persons[k],'user_id',null); if(uid && u.id && uid===u.id) return k; }
+    var n=(u.name||'').toLowerCase();
+    if(n.indexOf('fiona')>=0) return 'fiona';
+    if(n.indexOf('robert')>=0) return 'robert';
+    return 'robert';
   }
   function ringGlow(size, col, photo){
     var b = { width:size+'px', height:size+'px', borderRadius:'50%', flex:'none', border:'2px solid '+col, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' };
@@ -768,8 +780,12 @@
       kidData={ name:k.name, noPhoto:k.noPhoto, glyph:k.glyph, ringStyle:ringGlow(46,C.accent,k.photo), deviceLabel:k.deviceLabel, statusLabel:k.statusLabel, points:k.points, used:k.used, left:k.left, ipadLine:k.lines.ipadLine, tvLine:k.lines.tvLine, swLine:k.lines.swLine, dayTicks:['M','T','W','T','F','S','S'] }; }
     if(dlg && dlg.kind==='cam'){ var c=cameras.filter(function(x){return x.id===dlg.id;})[0]||cameras[0]; camData={ name:c.name, sub:c.sub, glyph:c.glyph, img:c.img }; }
 
+    var acctK = accountKey();
+    var acctName = (state.haUser && state.haUser.name) ? state.haUser.name : (acctK.charAt(0).toUpperCase()+acctK.slice(1));
+    var account = { photo:(HA_PHOTOS[acctK]?photoOrPerson(SENS['p_'+acctK]||'', acctK):''), initial:acctName.charAt(0).toUpperCase(), name:acctName };
     return {
       clock:clock, weatherIcon:wIcons[wState]||'rainy', weatherTemp:Math.round(parseFloat(wTemp))+'°', weatherLabel:wLabel,
+      account:account,
       nav:nav, presence:presence, kids:kids, cameras:cameras,
       climateActive:climateActive, climateNoneActive:climateActive.length===0, climateMetric:climateMetric,
       lightsActive:lightsActive, lightsNoneActive:lightsActive.length===0, lightsMetric:lightsMetric,
@@ -808,7 +824,7 @@
       '<div style="margin-left:auto;display:flex;align-items:center;gap:14px;flex:none;">'+demoChip+liveChip+
         '<div style="display:flex;align-items:center;gap:7px;"><span class="ms" style="font-size:20px;color:#6fb6ff;">'+V.weatherIcon+'</span><span style="font:600 14px/1 \'Space Grotesk\';">'+V.weatherTemp+'</span><span style="font:500 11px/1 \'JetBrains Mono\',monospace;color:#6b7787;">'+esc(V.weatherLabel)+'</span></div>'+
         '<span style="font:600 17px/1 \'JetBrains Mono\',monospace;letter-spacing:.04em;color:#d7e2ee;min-width:62px;text-align:right;">'+V.clock+'</span>'+
-        '<div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(150deg,#1f3142,#0f1a24);border:1.5px solid #00b3ff;display:flex;align-items:center;justify-content:center;font:600 12px/1 \'Space Grotesk\';color:#bfe2ff;flex:none;">R</div>'+
+        '<div title="'+esc(V.account.name)+'" style="width:34px;height:34px;border-radius:50%;'+(V.account.photo?'background-image:url(\''+V.account.photo+'\');background-size:cover;background-position:center;background-color:#0f1a24;':'background:linear-gradient(150deg,#1f3142,#0f1a24);')+'border:1.5px solid #00b3ff;display:flex;align-items:center;justify-content:center;font:600 12px/1 \'Space Grotesk\';color:#bfe2ff;flex:none;">'+(V.account.photo?'':esc(V.account.initial))+'</div>'+
       '</div></div>';
   }
 
