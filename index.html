@@ -714,7 +714,10 @@
     // ---- tyres ----
     var tu = state.tyreUnit;
     function fmtT(kpa){ return tu==='bar'?(kpa/100).toFixed(2):tu==='psi'?(kpa*0.145038).toFixed(1):String(Math.round(kpa)); }
-    var tFL=numv(SENS.tyre_fl,280), tFR=numv(SENS.tyre_fr,245), tRL=numv(SENS.tyre_rl,255), tRR=numv(SENS.tyre_rr,267);
+    var tFL=numv(SENS.tyre_fl,280), tFR=numv(SENS.tyre_fr,250), tRL=numv(SENS.tyre_rl,255), tRR=numv(SENS.tyre_rr,267);
+    // classify by the rounded (displayed) value: ok >=250, orange below 250, red when extremely low / abnormal
+    function tyreLevel(kpa){ var d=Math.round(kpa); if(isNaN(d)||d<225||d>330) return 'crit'; if(d<250) return 'low'; return 'ok'; }
+    var tyres = { fl:{disp:fmtT(tFL),lvl:tyreLevel(tFL)}, fr:{disp:fmtT(tFR),lvl:tyreLevel(tFR)}, rl:{disp:fmtT(tRL),lvl:tyreLevel(tRL)}, rr:{disp:fmtT(tRR),lvl:tyreLevel(tRR)} };
 
     // ---- car ----
     var chargeKw = (numv(SENS.charge_w,2934.6)/1000); chargeKw = Math.round(chargeKw*10)/10;
@@ -794,7 +797,7 @@
       climateZones:climateZones, fans:fans, airRooms:airRooms,
       lightAreas:lightAreas, lightsOn:lightsOn, lightsTotal:lightsTotal,
       nas:nas, claude:claude, gateOpen:gateOpen, armed:armed, car:car,
-      tyreUnit:tu, tyreFL:fmtT(tFL), tyreFR:fmtT(tFR), tyreRL:fmtT(tRL), tyreRR:fmtT(tRR), tyreLow:(tFR<250),
+      tyreUnit:tu, tyres:tyres,
       calIsList:calIsList, calIsDay:calIsDay, calIsMonth:calIsMonth, calViewBtns:calViewBtns, calPeriodLabel:calPeriodLabel,
       calEvents:calEvents, calDayEvents:calDayEvents, calWeekEmpty:calIsList&&calEvents.length===0, calDayEmpty:calIsDay&&calDayEvents.length===0,
       calCells:calCells, calWeekdays:['M','T','W','T','F','S','S'],
@@ -831,9 +834,18 @@
 
   function carHero(V, opts){
     opts = opts||{};
-    var frFill = V.tyreLow ? 'rgba(255,168,76,.75)' : 'rgba(0,179,255,.55)';
-    var frShadow = V.tyreLow ? '0 0 11px rgba(255,168,76,.6)' : '0 0 8px rgba(0,179,255,.5)';
-    var frAnim = V.tyreLow ? 'animation:pulse 1.8s ease-in-out infinite;' : '';
+    // per-tyre styling by level: ok=blue, low=orange (below 250), crit=red (extremely low / abnormal)
+    var TS = { ok:{bar:'rgba(0,179,255,.55)',sh:'0 0 8px rgba(0,179,255,.5)',anim:'',text:'#bfe2ff',sub:'#6b7787',lab:'#6fb6ff',warn:''},
+               low:{bar:'rgba(255,168,76,.75)',sh:'0 0 11px rgba(255,168,76,.6)',anim:'animation:pulse 1.8s ease-in-out infinite;',text:'#ffce9c',sub:'#b78a5e',lab:'#ffae5c',warn:'LOW'},
+               crit:{bar:'rgba(255,93,93,.82)',sh:'0 0 12px rgba(255,93,93,.7)',anim:'animation:pulse 1.5s ease-in-out infinite;',text:'#ffb3b3',sub:'#c98686',lab:'#ff7a7a',warn:'CHECK'} };
+    var tyre = V.tyres, sFL=TS[tyre.fl.lvl], sFR=TS[tyre.fr.lvl], sRL=TS[tyre.rl.lvl], sRR=TS[tyre.rr.lvl];
+    function tBar(pos, s){ return '<div style="position:absolute;'+pos+';width:10px;height:28px;border-radius:4px;background:'+s.bar+';box-shadow:'+s.sh+';'+s.anim+'"></div>'; }
+    function tCorner(pos, align, name, t, s){
+      var head = s.warn
+        ? '<div style="display:flex;align-items:center;gap:3px;"><span class="ms" style="font-size:11px;color:'+s.lab+';font-variation-settings:\'FILL\' 1;">warning</span><div style="font:600 8px/1 \'JetBrains Mono\',monospace;color:'+s.lab+';letter-spacing:.08em;">'+name+' · '+s.warn+'</div></div>'
+        : '<div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:'+s.lab+';letter-spacing:.08em;">'+name+'</div>';
+      return '<div style="position:absolute;'+pos+';display:flex;flex-direction:column;align-items:'+align+';'+s.anim+'">'+head+'<div style="font:700 17px/1 \'Space Grotesk\';color:'+s.text+';margin-top:3px;">'+t.disp+'<span style="font-size:8px;color:'+s.sub+';"> '+V.tyreUnit+'</span></div></div>';
+    }
     var holo = '<div data-act="tyre" style="position:absolute;right:6px;top:0;bottom:0;width:300px;display:flex;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;z-index:3;">'+
       '<div style="position:absolute;width:212px;height:212px;border-radius:50%;background:radial-gradient(circle,rgba(0,179,255,.13),transparent 62%);"></div>'+
       '<div style="position:relative;width:252px;height:188px;">'+
@@ -845,15 +857,15 @@
             '<div style="position:absolute;bottom:22px;left:13px;right:13px;height:26px;border-radius:6px 6px 12px 12px;background:rgba(0,179,255,.1);border:1px solid rgba(0,179,255,.25);"></div>'+
             '<div style="position:absolute;top:58px;bottom:50px;left:50%;width:1px;background:rgba(0,179,255,.22);transform:translateX(-50%);"></div>'+
           '</div>'+
-          '<div style="position:absolute;left:-5px;top:18px;width:10px;height:28px;border-radius:4px;background:rgba(0,179,255,.55);box-shadow:0 0 8px rgba(0,179,255,.5);"></div>'+
-          '<div style="position:absolute;right:-5px;top:18px;width:10px;height:28px;border-radius:4px;background:'+frFill+';box-shadow:'+frShadow+';'+frAnim+'"></div>'+
-          '<div style="position:absolute;left:-5px;bottom:18px;width:10px;height:28px;border-radius:4px;background:rgba(0,179,255,.55);box-shadow:0 0 8px rgba(0,179,255,.5);"></div>'+
-          '<div style="position:absolute;right:-5px;bottom:18px;width:10px;height:28px;border-radius:4px;background:rgba(0,179,255,.55);box-shadow:0 0 8px rgba(0,179,255,.5);"></div>'+
+          tBar('left:-5px;top:18px', sFL)+
+          tBar('right:-5px;top:18px', sFR)+
+          tBar('left:-5px;bottom:18px', sRL)+
+          tBar('right:-5px;bottom:18px', sRR)+
         '</div>'+
-        '<div style="position:absolute;left:0;top:20px;display:flex;flex-direction:column;align-items:flex-start;"><div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#6fb6ff;letter-spacing:.08em;">FRONT L</div><div style="font:700 17px/1 \'Space Grotesk\';color:#bfe2ff;margin-top:3px;">'+V.tyreFL+'<span style="font-size:8px;color:#6b7787;"> '+V.tyreUnit+'</span></div></div>'+
-        '<div style="position:absolute;right:0;top:14px;display:flex;flex-direction:column;align-items:flex-end;'+(V.tyreLow?'animation:pulse 1.9s ease-in-out infinite;':'')+'">'+(V.tyreLow?'<div style="display:flex;align-items:center;gap:3px;"><span class="ms" style="font-size:11px;color:#ffae5c;font-variation-settings:\'FILL\' 1;">warning</span><div style="font:600 8px/1 \'JetBrains Mono\',monospace;color:#ffae5c;letter-spacing:.08em;">FRONT R · LOW</div></div>':'<div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#6fb6ff;letter-spacing:.08em;">FRONT R</div>')+'<div style="font:700 17px/1 \'Space Grotesk\';color:'+(V.tyreLow?'#ffce9c':'#bfe2ff')+';margin-top:3px;">'+V.tyreFR+'<span style="font-size:8px;color:'+(V.tyreLow?'#b78a5e':'#6b7787')+';"> '+V.tyreUnit+'</span></div></div>'+
-        '<div style="position:absolute;left:0;bottom:14px;display:flex;flex-direction:column;align-items:flex-start;"><div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#6fb6ff;letter-spacing:.08em;">REAR L</div><div style="font:700 17px/1 \'Space Grotesk\';color:#bfe2ff;margin-top:3px;">'+V.tyreRL+'<span style="font-size:8px;color:#6b7787;"> '+V.tyreUnit+'</span></div></div>'+
-        '<div style="position:absolute;right:0;bottom:14px;display:flex;flex-direction:column;align-items:flex-end;"><div style="font:500 8px/1 \'JetBrains Mono\',monospace;color:#6fb6ff;letter-spacing:.08em;">REAR R</div><div style="font:700 17px/1 \'Space Grotesk\';color:#bfe2ff;margin-top:3px;">'+V.tyreRR+'<span style="font-size:8px;color:#6b7787;"> '+V.tyreUnit+'</span></div></div>'+
+        tCorner('left:0;top:20px','flex-start','FRONT L',tyre.fl,sFL)+
+        tCorner('right:0;top:14px','flex-end','FRONT R',tyre.fr,sFR)+
+        tCorner('left:0;bottom:14px','flex-start','REAR L',tyre.rl,sRL)+
+        tCorner('right:0;bottom:14px','flex-end','REAR R',tyre.rr,sRR)+
       '</div></div>';
     var body = '<div style="position:relative;padding:16px 18px;height:100%;display:flex;flex-direction:column;pointer-events:none;">'+
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;"><div><div style="font:600 11px/1 \'JetBrains Mono\',monospace;letter-spacing:.14em;text-transform:uppercase;color:#5a6473;">Vehicle · '+(V.car.locked?'Home':'Away')+'</div><div style="font:700 23px/1 \'Space Grotesk\';margin-top:7px;">BYD M6</div></div></div>'+
